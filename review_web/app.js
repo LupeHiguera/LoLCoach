@@ -1,100 +1,417 @@
+'use strict';
+/* LoLCoach review app. Hand-written, no build step. Design system: UI.md. */
+
+// ---------------------------------------------------------------- helpers
 const $ = id => document.getElementById(id);
-const state = {matches: [], detail: null, moment: null, metric: 'gold_diff', dirty: false, focusDirty: false, videoURL: null, request: 0};
-const queues = {420: 'Solo/duo', 440: 'Flex', 400: 'Normal draft'};
-const time = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
-const signed = n => n == null ? 'unavailable' : `${n > 0 ? '+' : ''}${n}`;
-let noticeTimer;
-function notice(message, error = false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); $('notice').hidden = false; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => $('notice').hidden = true, error ? 10000 : 4000); }
-async function api(path, body) { const r = await fetch(path, body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); const data = await r.json(); if (!r.ok) throw Error(data.error || 'Request failed'); return data; }
-function discardReview() { return !state.dirty || confirm('Leave this unsaved review?'); }
-function filteredMatches() { return state.matches.filter(m => (!$('champion').value || m.my_champion === $('champion').value) && (!$('queue').value || String(m.queue_id) === $('queue').value) && (!$('result').value || String(m.win) === $('result').value)); }
-function renderMatches() {
-  const matches = filteredMatches(); $('match-count').textContent = matches.length;
-  $('matches').innerHTML = matches.map(m => `<button class="match ${state.detail?.match.match_id === m.match_id ? 'active' : ''}" data-id="${esc(m.match_id)}"><span class="match-top"><span>${esc(m.my_champion)} <span class="muted">vs ${esc(m.opp_champion || '?')}</span></span><span class="${m.win ? 'win' : 'loss'}">${m.win ? 'W' : 'L'}</span></span><small>${new Date(m.game_start_ms).toLocaleDateString()} · ${time(m.duration_s * 1000)} · ${esc(queues[m.queue_id] || m.queue_id)} · ${esc(m.patch)}</small></button>`).join('') || '<p class="muted small">No imported games match these filters.</p>';
-  $('matches').querySelectorAll('button').forEach(b => b.onclick = () => loadMatch(b.dataset.id));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const clock = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+const fmt = n => Number(n).toLocaleString('en-US');
+const signed = n => n == null ? 'n/a' : `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
+const day = ms => new Date(ms).toLocaleDateString(undefined, {month: '2-digit', day: '2-digit'});
+const isoDay = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const hhmm = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+const QUEUES = {420: 'Ranked solo/duo', 440: 'Ranked flex', 400: 'Normal draft'};
+const METRICS = {gold_diff: 'Gold', xp_diff: 'XP', cs_diff: 'Lane CS'};
+const EVIDENCE = {stats_only: 'timeline only', recording: 'recording', memory: 'recollection'};
+
+/** Win/loss always pairs colour with a glyph and a letter (UI.md §3). */
+const result = win => win
+  ? '<span class="res win"><span class="g" aria-hidden="true">▲</span>W</span>'
+  : '<span class="res loss"><span class="g" aria-hidden="true">▼</span>L</span>';
+
+const skeleton = (cols, rows = 6) =>
+  Array.from({length: rows}, () => `<tr class="skeleton">${'<td><span></span></td>'.repeat(cols)}</tr>`).join('');
+const emptyRow = (cols, html) => `<tr class="empty-row"><td colspan="${cols}">${html}</td></tr>`;
+
+const state = {
+  matches: [], detail: null, moment: null, metric: 'gold_diff',
+  dirty: false, focusDirty: false, focus: null, videoURL: null, request: 0,
+};
+
+// ---------------------------------------------------------------- data
+async function api(path, body) {
+  const init = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
+  let r;
+  try { r = await fetch(path, init); } catch (e) {
+    throw Error('Cannot reach the review server. Start it with python review_app.py, then reload.');
+  }
+  let data = null;
+  try { data = await r.json(); } catch (e) { /* non-JSON error page */ }
+  if (!r.ok) { const err = Error((data && data.error) || `Request failed (${r.status})`); err.status = r.status; throw err; }
+  return data;
 }
-function clearVideo() { if (state.videoURL) URL.revokeObjectURL(state.videoURL); state.videoURL = null; $('video').pause(); $('video').removeAttribute('src'); $('video').load(); $('video').hidden = true; $('video-file').value = ''; $('video-offset').value = '0'; $('video-status').textContent = ''; }
+
+// ---------------------------------------------------------------- status line (replaces toasts)
+function status(message, kind = 'ok') {
+  const el = $('status');
+  el.textContent = message;
+  el.className = kind;
+  el.title = message;
+}
+
+// ---------------------------------------------------------------- banner
+function renderBanner() {
+  const recent = state.matches.slice(0, 10);
+  const results = recent.map(m => result(m.win)).join(' ');
+  const focus = state.focus && state.focus.goal ? ` · focus: ${esc(state.focus.goal)}` : '';
+  $('ticker-track').innerHTML = recent.length ? `Last ${recent.length}: ${results}${focus}` : `No games imported${focus}`;
+  const ticker = $('ticker');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  ticker.classList.remove('scrolling');
+  if (!reduce && ticker.scrollWidth > ticker.clientWidth + 1) ticker.classList.add('scrolling');
+
+  // "games reviewed" needs a reviewed flag per match; until the API sends one, count imports.
+  const hasFlag = state.matches.some(m => 'reviewed' in m);
+  const count = hasFlag ? state.matches.filter(m => m.reviewed).length : state.matches.length;
+  $('led-label').textContent = hasFlag ? 'games reviewed' : 'games imported';
+  $('led').textContent = String(count).padStart(4, '0');
+  const latest = state.matches.reduce((a, m) => Math.max(a, m.game_start_ms || 0), 0);
+  $('last-updated').textContent = `Latest game: ${latest ? isoDay(latest) : '—'}`;
+}
+
+// ---------------------------------------------------------------- games list
+function filteredMatches() {
+  const c = $('champion').value, q = $('queue').value, w = $('result').value;
+  return state.matches.filter(m => (!c || m.my_champion === c) && (!q || String(m.queue_id) === q) && (!w || String(Number(m.win)) === w));
+}
+
+function renderMatches() {
+  const list = filteredMatches();
+  $('match-count').textContent = `n=${list.length}`;
+  const active = state.detail && state.detail.match.match_id;
+  $('matches').innerHTML = list.map(m => `
+    <tr data-id="${esc(m.match_id)}" class="${m.match_id === active ? 'selected' : ''}">
+      <td class="num">${day(m.game_start_ms)}</td>
+      <td><button class="linkbtn" type="button" data-id="${esc(m.match_id)}" aria-current="${m.match_id === active}">${esc(m.my_champion)} v ${esc(m.opp_champion || '?')}</button></td>
+      <td>${result(m.win)}</td>
+      <td class="num">${clock(m.duration_s * 1000)}</td>
+    </tr>`).join('') || emptyRow(4, state.matches.length
+      ? 'No games match these filters. Change Queue or Result.'
+      : 'No Ahri/Zoe mid games with a timeline yet. Run <code>python fetch_matches.py --count 20</code>.');
+}
+
+$('matches').onclick = e => { const row = e.target.closest('tr[data-id]'); if (row) loadMatch(row.dataset.id); };
+for (const id of ['champion', 'queue', 'result']) $(id).onchange = renderMatches;
+
+// ---------------------------------------------------------------- match
+function discardReview() { return !state.dirty || confirm('Leave this unsaved review?'); }
+
+function showReviewEmpty(html, error = false) {
+  $('detail').hidden = true;
+  $('review-empty').hidden = false;
+  $('review-empty-text').className = error ? 'state error' : 'state';
+  $('review-empty-text').innerHTML = html;
+}
+
 async function loadMatch(id) {
   if (!discardReview()) return;
   const request = ++state.request;
+  status(`Loading ${id}…`, 'note');
   try {
     const detail = await api('/api/match?id=' + encodeURIComponent(id));
     if (request !== state.request) return;
-    state.detail = detail; state.moment = null; state.dirty = false; clearVideo();
-    $('detail').hidden = false; $('empty').hidden = true; $('review-form').hidden = true; $('review-title').textContent = 'Choose a moment above.'; $('review-description').textContent = ''; $('saved').textContent = '';
-    const m = detail.match; $('match-title').textContent = `${m.my_champion} vs ${m.opp_champion || 'unknown opponent'}`;
-    $('match-meta').textContent = `${new Date(m.game_start_ms).toLocaleDateString()} · ${queues[m.queue_id] || m.queue_id} · PATCH ${m.patch} · ${time(m.duration_s * 1000)}`;
-    $('match-result').textContent = m.win ? 'Victory' : 'Defeat'; $('match-result').className = `badge ${m.win ? 'win' : 'loss'}`;
-    renderMatches(); renderChart(); renderMoments(); renderReviews();
-  } catch(e) { notice(e.message, true); }
-}
-function renderChart() {
-  const d = state.detail, frames = d.frames, metric = state.metric;
-  const points = frames.filter(f => Number.isFinite(f[metric]));
-  if (!points.length) { $('chart').innerHTML = '<p class="muted">No comparable snapshots available for this metric.</p>'; return; }
-  const width = 900, height = 255, left = 65, top = 20, bottom = 215;
-  const duration = Math.max(d.match.duration_s*1000, ...frames.map(f => f.time), 60000);
-  const limit = Math.max(metric === 'cs_diff' ? 10 : 100, ...points.map(f => Math.abs(f[metric]))) * 1.12;
-  const x = t => left + (width-left-20)*t/duration, y = v => top + (bottom-top)*(1-v/limit)/2;
-  let path = '', prev = null;
-  for (const p of frames) {
-    if (!Number.isFinite(p[metric])) { prev = null; continue; }
-    path += `${!prev || p.time-prev.time > d.cadence_ms*1.25 ? 'M' : 'L'}${x(p.time)},${y(p[metric])} `; prev = p;
+    state.detail = detail; state.moment = null; state.dirty = false;
+    clearVideo();
+    $('review-empty').hidden = true; $('detail').hidden = false;
+    renderMatchHeader(); renderMatches(); renderChart(); renderMoments(); renderReviewForm();
+    status(`Loaded ${detail.match.my_champion} vs ${detail.match.opp_champion || 'unknown'} · ${isoDay(detail.match.game_start_ms)}`, 'note');
+  } catch (e) {
+    if (request === state.request) status(e.message, 'error');
   }
-  let svg = `<svg viewBox="0 0 ${width} ${height}" role="group" aria-label="${esc(metric)} difference timeline. Focus a snapshot for its value; press Enter to review.">`;
-  for (const v of [-limit, 0, limit]) svg += `<line x1="${left}" x2="880" y1="${y(v)}" y2="${y(v)}" stroke="${v === 0 ? '#66735a' : '#343e2e'}" stroke-dasharray="4 5"/><text x="55" y="${y(v)+4}" text-anchor="end" fill="#a5af9e" font-size="12">${signed(Math.round(v))}</text>`;
-  for (let t = 0; t <= duration; t += 300000) svg += `<text x="${x(t)}" y="244" text-anchor="middle" fill="#a5af9e" font-size="12">${time(t)}</text>`;
-  if (state.moment) svg += `<rect x="${x(state.moment.start_ms)}" y="${top}" width="${Math.max(3,x(state.moment.end_ms)-x(state.moment.start_ms))}" height="${bottom-top}" fill="#d4ed96" opacity=".08"/>`;
-  svg += `<path d="${path}" fill="none" stroke="#d4ed96" stroke-width="2.5"/>`;
-  for (const ts of d.deaths) svg += `<text x="${x(ts)}" y="${bottom+6}" text-anchor="middle" fill="#e79c8d" font-size="19"><title>Your death at ${time(ts)}</title>×</text>`;
-  points.forEach((f, i) => { svg += `<circle class="chart-point" cx="${x(f.time)}" cy="${y(f[metric])}" r="4" tabindex="0" role="button" data-index="${i}" aria-label="Review ${time(f.time)}, difference ${signed(f[metric])}"><title>${time(f.time)}: ${signed(f[metric])}</title></circle>`; });
-  $('chart').innerHTML = svg + '</svg>';
-  $('chart-readout').textContent = state.moment ? `Selected: ${time(state.moment.start_ms)}–${time(state.moment.end_ms)}` : 'Select a snapshot to bookmark it.';
-  $('chart').querySelectorAll('.chart-point').forEach(p => {
+}
+
+function renderMatchHeader() {
+  const m = state.detail.match;
+  $('match-title').textContent = `${m.my_champion} vs ${m.opp_champion || 'unknown opponent'}`;
+  $('match-result').innerHTML = `${result(m.win)} ${m.win ? 'Victory' : 'Defeat'}`;
+  $('match-meta').textContent = [isoDay(m.game_start_ms), QUEUES[m.queue_id] || `Queue ${m.queue_id}`, `Patch ${m.patch}`, clock(m.duration_s * 1000)].join(' · ');
+}
+
+// ---------------------------------------------------------------- timeline chart
+/** Round step for gridlines: 1, 2 or 5 × 10^k, giving about `target` lines per side. */
+function niceStep(max, target = 2) {
+  const raw = max / target, p = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map(k => k * p).find(s => s >= raw);
+}
+
+/** Value at time t by linear interpolation between snapshots; null when it would bridge a gap. */
+function valueAt(frames, key, t, cadence) {
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1], b = frames[i];
+    if (a.time <= t && t <= b.time) {
+      if (!Number.isFinite(a[key]) || !Number.isFinite(b[key]) || b.time - a.time > cadence * 1.25) return null;
+      return a[key] + (b[key] - a[key]) * (t - a.time) / (b.time - a.time || 1);
+    }
+  }
+  return null;
+}
+
+function renderChart() {
+  const d = state.detail, key = state.metric, label = METRICS[key], box = $('chart');
+  const frames = d.frames || [];
+  if (!frames.length) {
+    box.innerHTML = '<div class="state"><strong>No timeline for this match.</strong> Run <code>python fetch_matches.py</code> to import it; moments need a timeline too.</div>';
+    $('chart-readout').textContent = '';
+    return;
+  }
+  const points = frames.filter(f => Number.isFinite(f[key]));
+  if (!points.length) {
+    box.innerHTML = d.match.opp_champion
+      ? `<div class="state"><strong>No ${label} comparison in these snapshots.</strong> The lane opponent's frames are missing.</div>`
+      : '<div class="state"><strong>No lane opponent recorded for this match,</strong> so Gold, XP and CS differences are unavailable. Deaths are still listed in Moments.</div>';
+    $('chart-readout').textContent = '';
+    return;
+  }
+  const W = 860, H = 250, L = 56, R = 112, T = 14, B = 214;
+  const duration = Math.max(d.match.duration_s * 1000, ...frames.map(f => f.time), 60000);
+  const peak = Math.max(key === 'cs_diff' ? 10 : 300, ...points.map(f => Math.abs(f[key])));
+  const step = niceStep(peak), limit = Math.ceil(peak / step) * step;
+  const x = t => +(L + (W - L - R) * t / duration).toFixed(1);
+  const y = v => +(T + (B - T) * (1 - v / limit) / 2).toFixed(1);
+
+  const segments = [];
+  let seg = null, prev = null;
+  for (const f of frames) {
+    if (!Number.isFinite(f[key])) { seg = null; prev = null; continue; }
+    if (!seg || f.time - prev.time > d.cadence_ms * 1.25) { seg = []; segments.push(seg); }
+    seg.push(f); prev = f;
+  }
+  const pts = s => s.map(f => `${x(f.time)},${y(f[key])}`).join('L');
+  const line = segments.map(s => 'M' + pts(s)).join('');
+  const area = segments.map(s => `M${x(s[0].time)},${y(0)}L${pts(s)}L${x(s[s.length - 1].time)},${y(0)}Z`).join('');
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="group" aria-label="${label} difference over the game. Focus a snapshot to read it; press Enter to review it.">`;
+  svg += `<defs><clipPath id="clip-pos"><rect x="0" y="0" width="${W}" height="${y(0)}"/></clipPath><clipPath id="clip-neg"><rect x="0" y="${y(0)}" width="${W}" height="${H - y(0)}"/></clipPath></defs>`;
+  for (let t = 0; t <= duration; t += 300000) {
+    svg += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${B}"/><text class="axis" x="${x(t)}" y="${B + 18}" text-anchor="middle">${clock(t)}</text>`;
+  }
+  for (let v = -limit; v <= limit; v += step) {
+    svg += `<line class="${v === 0 ? 'zero' : 'grid'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${signed(v)}</text>`;
+  }
+  svg += `<text class="axis" x="${W - R}" y="${B + 34}" text-anchor="end">game time (min)</text>`;
+  if (state.moment) {
+    const x0 = x(state.moment.start_ms), x1 = x(state.moment.end_ms);
+    svg += `<rect class="band" x="${x0}" y="${T}" width="${Math.max(3, x1 - x0)}" height="${B - T}"/>`;
+  }
+  svg += `<path class="area-pos" d="${area}" clip-path="url(#clip-pos)"/><path class="area-neg" d="${area}" clip-path="url(#clip-neg)"/>`;
+  svg += `<path class="line" d="${line}"/>`;
+  for (const ts of d.deaths || []) {
+    const v = valueAt(frames, key, ts, d.cadence_ms);
+    svg += `<text class="death" x="${x(ts)}" y="${y(v ?? 0) + 5}" text-anchor="middle">✕<title>Your death at ${clock(ts)}</title></text>`;
+  }
+  const last = points[points.length - 1];
+  svg += `<text class="direct" x="${x(last.time) + 8}" y="${y(last[key]) + 4}">${label} ${signed(last[key])}</text>`;
+  points.forEach((f, i) => {
+    svg += `<circle class="pt" cx="${x(f.time)}" cy="${y(f[key])}" r="3" tabindex="0" role="button" data-index="${i}" aria-label="${clock(f.time)}, ${label} ${signed(f[key])}. Review this snapshot."><title>${clock(f.time)}: ${label} ${signed(f[key])}</title></circle>`;
+  });
+  box.innerHTML = svg + '</svg>';
+
+  const idle = () => { $('chart-readout').textContent = state.moment ? `Selected ${clock(state.moment.start_ms)}–${clock(state.moment.end_ms)} · ${state.moment.title}` : 'Hover or focus a snapshot to read it; click to review it.'; };
+  idle();
+  box.querySelectorAll('.pt').forEach(p => {
     const f = points[Number(p.dataset.index)];
-    const readout = () => $('chart-readout').textContent = `${time(f.time)} · Gold ${signed(f.gold_diff)} · XP ${signed(f.xp_diff)} · Lane CS ${signed(f.cs_diff)}`;
-    const select = () => selectMoment({id:`custom-${f.time}`, start_ms:f.time, end_ms:f.time, title:`Snapshot at ${time(f.time)}`, description:'What was happening here? Use a recording or mark the cause as unconfirmed.', kind:'custom'});
-    p.onmouseenter = readout; p.onfocus = readout; p.onclick = select; p.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); } };
+    const read = () => { $('chart-readout').textContent = `${clock(f.time)} · Gold ${signed(f.gold_diff)} · XP ${signed(f.xp_diff)} · Lane CS ${signed(f.cs_diff)}`; };
+    const pick = () => selectMoment({id: `custom-${f.time}`, start_ms: f.time, end_ms: f.time, kind: 'custom',
+      title: `Snapshot at ${clock(f.time)}`, description: 'Chosen from the timeline.'});
+    p.onmouseenter = read; p.onfocus = read; p.onmouseleave = idle;
+    p.onclick = pick;
+    p.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
   });
 }
-function renderMoments() {
-  const moments = state.detail.moments; $('moment-count').textContent = moments.length;
-  $('moments').innerHTML = moments.map((m,i) => `<button class="moment ${state.moment?.id === m.id ? 'active' : ''}" data-index="${i}"><span class="time">${time(m.start_ms)}–${time(m.end_ms)}</span><strong>${esc(m.title)}</strong><small>${m.kind === 'death' ? 'EVENT TIMESTAMP' : 'SAMPLED OBSERVATION'}${state.detail.reviews.some(r => r.moment_id === m.id) ? ' · SAVED' : ''}</small></button>`).join('') || '<p class="muted small">No automatic prompts in this game. Select any timeline snapshot to review your own moment.</p>';
-  $('moments').querySelectorAll('button').forEach(b => b.onclick = () => selectMoment(moments[Number(b.dataset.index)]));
+
+document.querySelectorAll('[data-metric]').forEach(b => b.onclick = () => {
+  state.metric = b.dataset.metric;
+  document.querySelectorAll('[data-metric]').forEach(t => t.setAttribute('aria-pressed', String(t === b)));
+  if (state.detail) renderChart();
+});
+
+// ---------------------------------------------------------------- moments (auto prompts + saved snapshots)
+function momentRows() {
+  const d = state.detail, rows = [...d.moments];
+  for (const r of d.reviews) {
+    if (!rows.some(m => m.id === r.moment_id)) {
+      rows.push({id: r.moment_id, start_ms: r.start_ms, end_ms: r.end_ms, kind: 'custom',
+        title: r.start_ms === r.end_ms ? `Snapshot at ${clock(r.start_ms)}` : 'Saved moment', description: 'Chosen from the timeline.'});
+    }
+  }
+  return rows.sort((a, b) => a.end_ms - b.end_ms || a.start_ms - b.start_ms);
 }
-function selectMoment(moment, savedReview) {
-  if (!discardReview()) return;
+
+const BASIS = {death: 'event timestamp', deficit: 'sampled snapshot', farm: 'sampled snapshots', custom: 'your pick'};
+
+function renderMoments() {
+  const d = state.detail, rows = momentRows();
+  state.rows = rows;
+  $('moment-count').textContent = `${d.moments.length} prompts · ${d.reviews.length} saved`;
+  $('moments').innerHTML = rows.map((m, i) => {
+    const r = d.reviews.find(x => x.moment_id === m.id);
+    const span = m.start_ms === m.end_ms ? clock(m.end_ms) : `${clock(m.start_ms)}–${clock(m.end_ms)}`;
+    return `<tr data-index="${i}" class="${state.moment && state.moment.id === m.id ? 'selected' : ''}">
+      <td class="num">${span}</td>
+      <td><button class="linkbtn" type="button">${esc(m.title)}</button></td>
+      <td class="cell-note">${BASIS[m.kind] || esc(m.kind)}</td>
+      <td>${r ? `${esc(r.reason)} · ${esc(EVIDENCE[r.evidence] || r.evidence)}<br><span class="cell-note">${esc(r.observation.slice(0, 90))}${r.observation.length > 90 ? '…' : ''}</span>` : '<span class="cell-note">—</span>'}</td>
+    </tr>`;
+  }).join('') || emptyRow(4, d.frames.length
+    ? 'No automatic prompts in this game. Click a point on the chart to review your own moment.'
+    : 'No timeline, so no prompts. Run <code>python fetch_matches.py</code> to import it.');
+}
+
+$('moments').onclick = e => {
+  const row = e.target.closest('tr[data-index]');
+  if (row) selectMoment(state.rows[Number(row.dataset.index)]);
+};
+
+// ---------------------------------------------------------------- review form
+function renderReviewForm() {
+  const m = state.moment;
+  $('review-none').hidden = !!m;
+  $('review-form').hidden = !m;
+  if (!m) { $('saved').textContent = ''; return; }
+  const span = m.start_ms === m.end_ms ? clock(m.end_ms) : `${clock(m.start_ms)}–${clock(m.end_ms)}`;
+  $('review-title').textContent = `${span} · ${m.title}`;
+  $('review-description').textContent = m.description || '';
+}
+
+function selectMoment(moment) {
+  if (!moment || !discardReview()) return;
   state.moment = moment; state.dirty = false;
-  const review = savedReview || state.detail.reviews.find(r => r.moment_id === moment.id);
-  $('review-form').reset(); $('review-form').hidden = false; $('review-title').textContent = `${time(moment.start_ms)} · ${moment.title}`; $('review-description').textContent = moment.description;
-  for (const key of ['reason', 'evidence', 'observation', 'alternative']) if (review) $(key).value = review[key];
-  $('saved').textContent = review ? 'Saved bookmark loaded' : '';
+  const review = state.detail.reviews.find(r => r.moment_id === moment.id);
+  $('review-form').reset();
+  if (review) for (const k of ['reason', 'evidence', 'observation', 'alternative']) $(k).value = review[k] ?? '';
+  renderReviewForm();
+  $('saved').textContent = review ? `Saved ${review.updated_at ? new Date(review.updated_at).toLocaleString() : ''}` : 'Not saved';
   renderMoments(); renderChart();
 }
-function renderReviews() {
-  const reviews = state.detail.reviews; $('review-count').textContent = reviews.length;
-  $('reviews').innerHTML = reviews.map((r,i) => `<button class="bookmark" data-index="${i}"><strong>${time(r.start_ms)}–${time(r.end_ms)}</strong> <small>· ${esc(r.reason)} · ${esc({stats_only:'timeline only',recording:'recording reviewed',memory:'recollection'}[r.evidence])}</small><p>${esc(r.observation)}</p>${r.alternative ? `<p class="muted">Next time: ${esc(r.alternative)}</p>` : ''}</button>`).join('') || '<p class="muted small">Your observations and next steps will live here.</p>';
-  $('reviews').querySelectorAll('button').forEach(b => { b.onclick = () => { const r = reviews[Number(b.dataset.index)]; const m = state.detail.moments.find(m => m.id === r.moment_id) || {id:r.moment_id,start_ms:r.start_ms,end_ms:r.end_ms,title:'Saved moment',description:'Revisit your observation and the evidence behind it.'}; selectMoment(m,r); }; });
-}
-function showFocus(f) { $('focus-title').textContent = f.goal || 'Choose one thing you can control.'; $('focus-why').textContent = f.why_text || 'Start with a reviewed moment below, then turn it into a small practice goal.'; $('focus-check').textContent = f.check_text ? `After playing: ${f.check_text}` : ''; $('goal').value = f.goal; $('why').value = f.why_text; $('check').value = f.check_text; $('edit-focus').textContent = f.goal ? 'Edit focus ↗' : 'Set a focus ↗'; }
-$('edit-focus').onclick = () => { $('focus-form').hidden = false; $('goal').focus(); };
-$('cancel-focus').onclick = async () => { if (state.focusDirty && !confirm('Discard the unsaved focus changes?')) return; try { showFocus(await api('/api/focus')); state.focusDirty=false; $('focus-form').hidden=true; } catch(e) { notice(e.message,true); } };
-$('focus-form').oninput = () => state.focusDirty = true;
-$('focus-form').onsubmit = async e => { e.preventDefault(); const b = e.submitter; b.disabled = true; try { showFocus(await api('/api/focus',{goal:$('goal').value,why_text:$('why').value,check_text:$('check').value})); state.focusDirty=false; $('focus-form').hidden=true; notice('Focus saved. Keep it small and observable.'); } catch(e) { notice(e.message,true); } finally { b.disabled=false; } };
-$('review-form').oninput = () => { state.dirty=true; $('saved').textContent='Unsaved changes'; };
+
+$('review-form').oninput = () => { state.dirty = true; $('saved').textContent = 'Unsaved changes'; };
 $('review-form').onsubmit = async e => {
-  e.preventDefault(); if (!state.moment) return; const b=e.submitter; b.disabled=true;
-  const id=state.detail.match.match_id, moment=state.moment;
-  const body={match_id:id,moment_id:moment.id,start_ms:moment.start_ms,end_ms:moment.end_ms};
-  for (const k of ['reason','evidence','observation','alternative']) body[k]=$(k).value;
-  try { await api('/api/reviews',body); if (state.detail.match.match_id===id && state.moment?.id===moment.id) { state.dirty=false; $('saved').textContent='Saved locally'; } const fresh=await api('/api/match?id='+encodeURIComponent(id)); if (state.detail.match.match_id===id) { state.detail.reviews=fresh.reviews; renderReviews(); renderMoments(); } notice('Review saved.'); } catch(e) { notice(e.message,true); } finally { b.disabled=false; }
+  e.preventDefault();
+  if (!state.moment) return;
+  const button = $('save-review'); button.disabled = true;
+  const id = state.detail.match.match_id, moment = state.moment;
+  const body = {match_id: id, moment_id: moment.id, start_ms: moment.start_ms, end_ms: moment.end_ms};
+  for (const k of ['reason', 'evidence', 'observation', 'alternative']) body[k] = $(k).value;
+  try {
+    await api('/api/reviews', body);
+    if (state.detail.match.match_id === id && state.moment && state.moment.id === moment.id) { state.dirty = false; $('saved').textContent = `Saved ${hhmm()}`; }
+    status(`Review saved ${hhmm()}`);
+    const fresh = await api('/api/match?id=' + encodeURIComponent(id));
+    if (state.detail.match.match_id === id) { state.detail.reviews = fresh.reviews; renderMoments(); }
+  } catch (err) {
+    status(`Review not saved: ${err.message}`, 'error');
+  } finally { button.disabled = false; }
 };
-$('use-focus').onclick = () => { if (state.focusDirty && !confirm('Replace the unsaved focus draft?')) return; $('focus-form').hidden=false; $('goal').value=$('alternative').value.slice(0,1000); $('why').value=`${state.detail.match.my_champion} vs ${state.detail.match.opp_champion}, ${time(state.moment.start_ms)}: ${$('observation').value}`.slice(0,1000); $('check').value=''; state.focusDirty=true; $('goal').focus(); $('focus-form').scrollIntoView({behavior:'smooth',block:'center'}); };
-for (const id of ['champion','queue','result']) $(id).onchange = () => { renderMatches(); /* Keep an open review visible when filters change. */ };
-document.querySelectorAll('[data-metric]').forEach(b => b.onclick = () => { state.metric=b.dataset.metric; document.querySelectorAll('[data-metric]').forEach(t=>t.classList.toggle('active',t===b)); if (state.detail) renderChart(); });
-$('video-file').onchange = () => { const f=$('video-file').files[0]; if (!f) return; if (state.videoURL) URL.revokeObjectURL(state.videoURL); state.videoURL=URL.createObjectURL(f); $('video').src=state.videoURL; $('video').hidden=false; $('video-status').textContent='Recording selected. Check the clock alignment before reviewing.'; };
-$('video').onerror = () => $('video-status').textContent='This video format could not be played by the browser. Try an MP4 or WebM recording.';
-$('seek-video').onclick = () => { const v=$('video'), offset=Number($('video-offset').value); if (!state.moment || !Number.isFinite(v.duration) || !Number.isFinite(offset)) { notice('Choose a moment and a playable recording first.',true); return; } const target=state.moment.start_ms/1000+offset; if(target<0 || target>v.duration) { notice('This moment falls outside the recording. Check your clock offset.',true); return; } v.currentTime=target; $('video-status').textContent=`Video positioned at ${time(target*1000)}. Game review starts at ${time(state.moment.start_ms)}.`; };
-window.addEventListener('beforeunload', e => { if(state.dirty || state.focusDirty) { e.preventDefault(); e.returnValue=''; } });
-(async () => { try { const [matches,focus]=await Promise.all([api('/api/matches'),api('/api/focus')]); state.matches=matches; showFocus(focus); renderMatches(); const first=filteredMatches()[0]; if(first) await loadMatch(first.match_id); } catch(e) { notice(e.message,true); $('empty').querySelector('p').textContent='Could not load your games. Check that the local review server is running, then refresh.'; } })();
+
+$('use-focus').onclick = () => {
+  if (state.focusDirty && !confirm('Replace the unsaved focus draft?')) return;
+  const m = state.detail.match;
+  openFocusForm();
+  $('goal').value = $('alternative').value.slice(0, 1000);
+  $('why').value = `${m.my_champion} vs ${m.opp_champion || '?'}, ${clock(state.moment.start_ms)}: ${$('observation').value}`.slice(0, 1000);
+  $('check').value = '';
+  state.focusDirty = true;
+  $('goal').focus();
+};
+
+// ---------------------------------------------------------------- focus
+function showFocus(f) {
+  state.focus = f;
+  $('focus-goal').textContent = f.goal || 'No focus set.';
+  $('focus-why').textContent = f.goal ? (f.why_text || '') : 'Press Edit, or use "Use as focus" on a saved review.';
+  $('focus-check').textContent = f.check_text ? `Check: ${f.check_text}` : '';
+  $('goal').value = f.goal || ''; $('why').value = f.why_text || ''; $('check').value = f.check_text || '';
+  renderBanner();
+}
+function openFocusForm() { $('focus-form').hidden = false; $('edit-focus').hidden = true; }
+function closeFocusForm() { $('focus-form').hidden = true; $('edit-focus').hidden = false; state.focusDirty = false; }
+
+$('edit-focus').onclick = () => { openFocusForm(); $('goal').focus(); };
+$('cancel-focus').onclick = () => {
+  if (state.focusDirty && !confirm('Discard the unsaved focus changes?')) return;
+  showFocus(state.focus || {goal: '', why_text: '', check_text: ''});
+  closeFocusForm();
+};
+$('focus-form').oninput = () => { state.focusDirty = true; };
+$('focus-form').onsubmit = async e => {
+  e.preventDefault();
+  const button = $('save-focus'); button.disabled = true;
+  try {
+    showFocus(await api('/api/focus', {goal: $('goal').value, why_text: $('why').value, check_text: $('check').value}));
+    closeFocusForm();
+    status(`Focus saved ${hhmm()}`);
+  } catch (err) {
+    status(`Focus not saved: ${err.message}`, 'error');
+  } finally { button.disabled = false; }
+};
+
+// ---------------------------------------------------------------- video (local file, never uploaded)
+function clearVideo() {
+  if (state.videoURL) URL.revokeObjectURL(state.videoURL);
+  state.videoURL = null;
+  const v = $('video'); v.pause(); v.removeAttribute('src'); v.load(); v.hidden = true;
+  $('video-file').value = ''; $('video-offset').value = '0'; $('video-status').textContent = '';
+}
+
+$('video-file').onchange = () => {
+  const file = $('video-file').files[0];
+  if (!file) return;
+  if (state.videoURL) URL.revokeObjectURL(state.videoURL);
+  state.videoURL = URL.createObjectURL(file);
+  $('video').src = state.videoURL; $('video').hidden = false;
+  $('video-status').textContent = 'Recording loaded. Check that the offset lines up the game clock.';
+};
+$('video').onerror = () => { if (state.videoURL) $('video-status').textContent = 'The browser cannot play this format. Use an MP4 or WebM recording.'; };
+$('seek-video').onclick = () => {
+  const v = $('video'), offset = Number($('video-offset').value);
+  if (!state.moment) { status('Pick a moment before jumping in the recording.', 'error'); return; }
+  if (!v.src || !Number.isFinite(v.duration)) { status('Choose a playable recording first.', 'error'); return; }
+  if (!Number.isFinite(offset)) { status('Enter the video time at game 0:00 in seconds.', 'error'); return; }
+  const target = state.moment.start_ms / 1000 + offset;
+  if (target < 0 || target > v.duration) { status(`${clock(state.moment.start_ms)} falls outside this recording. Check the offset.`, 'error'); return; }
+  v.currentTime = target;
+  $('video-status').textContent = `Video at ${clock(target * 1000)} = game ${clock(state.moment.start_ms)}.`;
+};
+
+// ---------------------------------------------------------------- keyboard: J/K moments, Space play
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.activeElement && document.activeElement.classList.contains('info')) { document.activeElement.blur(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey || !state.detail || $('detail').hidden) return;
+  const t = e.target;
+  if (t.closest && t.closest('input, textarea, select, [contenteditable]')) return;
+  const key = e.key.toLowerCase();
+  if (key === ' ' && t.closest && t.closest('button, a, summary, video, [role="button"]')) return;
+  if (key === 'j' || key === 'k') {
+    const rows = state.rows || [];
+    if (!rows.length) return;
+    const i = state.moment ? rows.findIndex(m => m.id === state.moment.id) : -1;
+    const next = key === 'k' ? Math.min(rows.length - 1, i + 1) : Math.max(0, i < 0 ? 0 : i - 1);
+    selectMoment(rows[next]);
+    e.preventDefault();
+  } else if (key === ' ' && $('video').src) {
+    const v = $('video');
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------------------------------------------------------------- start
+(async () => {
+  $('matches').innerHTML = skeleton(4);
+  try {
+    const [matches, focus] = await Promise.all([api('/api/matches'), api('/api/focus')]);
+    state.matches = matches;
+    showFocus(focus);
+    renderMatches();
+    const first = filteredMatches()[0] || matches[0];
+    if (first) await loadMatch(first.match_id);
+    else showReviewEmpty('<strong>No games to review.</strong> Import Ahri/Zoe mid games with <code>python fetch_matches.py --count 20</code>, then reload.');
+    if (!first) status('No games imported', 'note');
+  } catch (e) {
+    $('matches').innerHTML = emptyRow(4, 'Games could not be loaded.');
+    showReviewEmpty(`<strong>Could not load your games.</strong> ${esc(e.message)}`, true);
+    status(e.message, 'error');
+  }
+})();
