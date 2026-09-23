@@ -16,6 +16,10 @@
   <div class="led"><span id="led-label">games imported</span><span class="led-digits" id="led">0000</span></div>
 </header>
 
+<nav class="tabs" aria-label="Views">
+  <a href="#review" data-view="review">Review</a><a href="#charm" data-view="charm">Charm</a><a href="#profile" data-view="profile">Profile</a>
+</nav>
+
 <div class="layout">
 <aside class="sidebar" aria-label="Focus and games">
 
@@ -53,8 +57,9 @@
 </aside>
 
 <main class="content" id="main">
+<section class="view content" id="view-review" aria-labelledby="view-review-h">
   <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
-  <h1 class="sr-only">Review</h1>
+  <h1 class="sr-only" id="view-review-h">Review</h1>
 
   <section class="box" id="review-empty" aria-live="polite"><div class="state" id="review-empty-text">Loading games…</div></section>
 
@@ -131,6 +136,19 @@
       </div>
     </section>
   </div>
+</section>
+
+<section class="view content" id="view-charm" aria-labelledby="view-charm-h" hidden>
+  <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
+  <h1 class="sr-only" id="view-charm-h">Charm</h1>
+  <section class="box"><div class="state" id="charm-state">Charm view not built yet.</div></section>
+</section>
+
+<section class="view content" id="view-profile" aria-labelledby="view-profile-h" hidden>
+  <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
+  <h1 class="sr-only" id="view-profile-h">Profile</h1>
+  <section class="box"><div class="state" id="profile-state">Profile view not built yet.</div></section>
+</section>
 </main>
 </div>
 

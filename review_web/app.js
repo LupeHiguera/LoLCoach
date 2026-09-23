@@ -90,7 +90,7 @@ function renderMatches() {
       : 'No Ahri/Zoe mid games with a timeline yet. Run <code>python fetch_matches.py --count 20</code>.');
 }
 
-$('matches').onclick = e => { const row = e.target.closest('tr[data-id]'); if (row) loadMatch(row.dataset.id); };
+$('matches').onclick = e => { const row = e.target.closest('tr[data-id]'); if (row) openInReview(row.dataset.id); };
 for (const id of ['champion', 'queue', 'result']) $(id).onchange = renderMatches;
 
 // ---------------------------------------------------------------- match
@@ -373,10 +373,32 @@ $('seek-video').onclick = () => {
   $('video-status').textContent = `Video at ${clock(target * 1000)} = game ${clock(state.moment.start_ms)}.`;
 };
 
+// ---------------------------------------------------------------- views (hash routing)
+const VIEWS = ['review', 'charm', 'profile'];
+const viewLoaders = {};  // view name -> function run on first show
+
+function showView() {
+  const name = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'review';
+  state.view = name;
+  for (const v of VIEWS) $(`view-${v}`).hidden = v !== name;
+  document.querySelectorAll('.tabs a').forEach(a => {
+    if (a.dataset.view === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  document.title = `${name[0].toUpperCase()}${name.slice(1)} · LoLCoach`;
+  if (viewLoaders[name]) viewLoaders[name]();
+}
+window.addEventListener('hashchange', showView);
+
+/** Open a match in the Review view, e.g. from a Charm table row. */
+function openInReview(id) {
+  if (location.hash !== '#review') location.hash = '#review';
+  loadMatch(id);
+}
+
 // ---------------------------------------------------------------- keyboard: J/K moments, Space play
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.activeElement && document.activeElement.classList.contains('info')) { document.activeElement.blur(); return; }
-  if (e.ctrlKey || e.metaKey || e.altKey || !state.detail || $('detail').hidden) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || state.view !== 'review' || !state.detail || $('detail').hidden) return;
   const t = e.target;
   if (t.closest && t.closest('input, textarea, select, [contenteditable]')) return;
   const key = e.key.toLowerCase();
@@ -399,6 +421,7 @@ window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDir
 
 // ---------------------------------------------------------------- start
 (async () => {
+  showView();
   $('matches').innerHTML = skeleton(4);
   try {
     const [matches, focus] = await Promise.all([api('/api/matches'), api('/api/focus')]);
