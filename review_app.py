@@ -6,9 +6,11 @@ from contextlib import closing
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import analyze
+import recorder
+from fetch_matches import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / 'review_web'
@@ -61,6 +63,7 @@ class ReviewStore:
                     id INTEGER PRIMARY KEY CHECK(id=1), goal TEXT, why_text TEXT,
                     check_text TEXT, updated_at TEXT);
             """)
+            recorder.ensure_schema(conn)
 
     def matches(self):
         with closing(connect(self.matches_path, True)) as conn:
@@ -97,7 +100,34 @@ class ReviewStore:
         moments = find_moments(frames, deaths, cadence)
         with closing(connect(self.notes_path)) as conn:
             reviews = [dict(r) for r in conn.execute("SELECT * FROM reviews WHERE match_id=? ORDER BY start_ms", (match_id,))]
-        return dict(match=match, frames=frames, deaths=deaths, moments=moments, reviews=reviews, cadence_ms=cadence)
+        return dict(match=match, frames=frames, deaths=deaths, moments=moments, reviews=reviews,
+                    cadence_ms=cadence, recording=self.recording(match_id))
+
+    def link_recordings(self):
+        """Link saved OBS recordings to matches fetched since (see recorder.link_recordings)."""
+        with closing(connect(self.notes_path)) as notes, closing(connect(self.matches_path, True)) as league:
+            return recorder.link_recordings(notes, league)
+
+    def recording_path(self, match_id):
+        """The linked recording's file if it still exists. Only table rows are ever served."""
+        with closing(connect(self.notes_path)) as conn:
+            row = recorder.recording_for(conn, match_id)
+        path = Path(row[0]) if row else None
+        return path if path is not None and path.is_file() else None
+
+    def recording(self, match_id):
+        """{path, offset_s, status, url} for the match's recording, or None.
+
+        offset_s is added to game time to get video time. It comes from the game
+        clock read when OBS started, so it can be off by a second or so.
+        """
+        self.link_recordings()
+        with closing(connect(self.notes_path)) as conn:
+            row = recorder.recording_for(conn, match_id)
+        if row is None:
+            return None
+        url = ('/api/recording-file?id=' + quote(match_id)) if self.recording_path(match_id) else None
+        return dict(path=row['path'], offset_s=row['offset_s'], status=row['status'], url=url)
 
     def charm(self):
         """Ahri Charm estimate per game and pooled with bootstrap CIs (analyze.charm_report)."""
@@ -197,7 +227,33 @@ def find_moments(frames, deaths, cadence):
     return sorted(moments, key=lambda m: (m['end_ms'], m['kind']))
 
 
-def make_handler(store):
+VIDEO_TYPES = {'.mp4': 'video/mp4', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
+               '.mov': 'video/quicktime'}
+CHUNK = 1 << 20
+
+
+def byte_range(header, size):
+    """(start, end) inclusive for a single `bytes=` Range header, None for whole file,
+    or ValueError when it can't be satisfied."""
+    if not header:
+        return None
+    unit, _, spec = header.partition('=')
+    if unit.strip() != 'bytes' or ',' in spec:
+        raise ValueError('Only single byte ranges are supported')
+    first, _, last = spec.strip().partition('-')
+    if first:
+        start = int(first)
+        end = min(int(last), size - 1) if last else size - 1
+    else:
+        start, end = max(0, size - int(last)), size - 1
+    if start > end or start >= size:
+        raise ValueError('Range not satisfiable')
+    return start, end
+
+
+def make_handler(store, rec=None):
+    rec = rec or recorder.Recorder(store.notes_path)
+
     class Handler(BaseHTTPRequestHandler):
         def respond(self, data, status=200, mime='application/json'):
             payload = json.dumps(data).encode() if mime == 'application/json' else data
@@ -209,6 +265,36 @@ def make_handler(store):
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'")
             self.end_headers()
             self.wfile.write(payload)
+
+        def send_video(self, path):
+            size = path.stat().st_size
+            try:
+                span = byte_range(self.headers.get('Range'), size)
+            except ValueError:
+                self.send_response(416)
+                self.send_header('Content-Range', f'bytes */{size}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            start, end = span or (0, size - 1)
+            self.send_response(206 if span else 200)
+            self.send_header('Content-Type', VIDEO_TYPES.get(path.suffix.lower(), 'application/octet-stream'))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Content-Length', str(end - start + 1))
+            if span:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            with open(path, 'rb') as f:
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = f.read(min(CHUNK, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
 
         def allowed(self, post=False):
             host = self.headers.get('Host', '')
@@ -237,6 +323,15 @@ def make_handler(store):
                     self.respond(store.charm())
                 elif url.path == '/api/profile':
                     self.respond(store.profile())
+                elif url.path == '/api/recorder':
+                    store.link_recordings()
+                    self.respond(rec.status())
+                elif url.path == '/api/recording-file':
+                    path = store.recording_path(parse_qs(url.query).get('id', [''])[0])
+                    if path is None:
+                        self.respond({'error': 'No recording for this match'}, 404)
+                    else:
+                        self.send_video(path)
                 elif not url.path.startswith('/api/') and (found := static_file(url.path)):
                     path, mime = found
                     self.respond(path.read_bytes(), mime=mime)
@@ -244,6 +339,8 @@ def make_handler(store):
                     self.respond({'error': 'Not found'}, 404)
             except KeyError:
                 self.respond({'error': 'Match not found'}, 404)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass  # the video element dropped a range request; nothing to answer
             except sqlite3.Error:
                 self.respond({'error': 'Unable to read the database. Retry after the import finishes.'}, 503)
 
@@ -264,6 +361,10 @@ def make_handler(store):
                     result = store.save_review(body)
                 elif self.path == '/api/focus':
                     result = store.save_focus(body)
+                elif self.path == '/api/recorder':
+                    if type(body.get('armed')) is not bool:
+                        raise ValueError('armed must be true or false')
+                    result = rec.set_armed(body['armed'])
                 else:
                     self.respond({'error': 'Not found'}, 404)
                     return
@@ -282,8 +383,9 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
     try:
+        load_dotenv(ROOT/'.env')
         store = ReviewStore(args.db, args.notes)
-        server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(store))
+        server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(store, recorder.Recorder(args.notes)))
     except (sqlite3.Error, OSError, ValueError) as exc:
         parser.exit(1, f'Cannot start review app: {exc}\nImport matches first, and check the database path and port.\n')
     print(f'Review app: http://127.0.0.1:{args.port}  (Ctrl+C to stop)', flush=True)

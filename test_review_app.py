@@ -129,8 +129,8 @@ def schema_db(path, games):
             store_match(c, riot_match(*args, **kwargs), ME)
 
 
-def serve(store):
-    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(store))
+def serve(store, rec=None):
+    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(store, rec))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread, f'http://127.0.0.1:{server.server_port}'
