@@ -6,10 +6,36 @@ from contextlib import closing
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
+
+import analyze
 
 ROOT = Path(__file__).resolve().parent
+WEB = ROOT / 'review_web'
 REASONS = {"uncertain", "dead", "recalling", "fighting", "roaming", "pressured", "other"}
+# Static files the app will serve from review_web/, by extension.
+STATIC_TYPES = {
+    '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+    '.json': 'application/json', '.woff2': 'font/woff2', '.woff': 'font/woff',
+    '.ttf': 'font/ttf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+}
+TEXT_TYPES = {'text/html', 'application/javascript', 'text/css', 'application/json',
+              'image/svg+xml'}
+
+
+def static_file(url_path, web=WEB):
+    """(path, mime) for a file inside review_web/, or None. Never escapes the folder."""
+    rel = unquote(url_path).lstrip('/') or 'index.html'
+    if '\\' in rel or '\0' in rel or any(part in ('', '.', '..') or part.startswith('.')
+                                         for part in rel.split('/')):
+        return None
+    mime = STATIC_TYPES.get(Path(rel).suffix.lower())
+    base = Path(web).resolve()
+    path = (base / rel).resolve()
+    if mime is None or base not in path.parents or not path.is_file():
+        return None
+    return path, mime
 
 
 def connect(path, readonly=False):
@@ -72,6 +98,16 @@ class ReviewStore:
         with closing(connect(self.notes_path)) as conn:
             reviews = [dict(r) for r in conn.execute("SELECT * FROM reviews WHERE match_id=? ORDER BY start_ms", (match_id,))]
         return dict(match=match, frames=frames, deaths=deaths, moments=moments, reviews=reviews, cadence_ms=cadence)
+
+    def charm(self):
+        """Ahri Charm estimate per game and pooled with bootstrap CIs (analyze.charm_report)."""
+        with closing(connect(self.matches_path, True)) as conn:
+            return analyze.charm_report(conn)
+
+    def profile(self):
+        """Per-champion end-of-game habits with bootstrap CIs (analyze.profile_report)."""
+        with closing(connect(self.matches_path, True)) as conn:
+            return analyze.profile_report(conn)
 
     def focus(self):
         with closing(connect(self.notes_path)) as conn:
@@ -166,7 +202,7 @@ def make_handler(store):
         def respond(self, data, status=200, mime='application/json'):
             payload = json.dumps(data).encode() if mime == 'application/json' else data
             self.send_response(status)
-            self.send_header('Content-Type', mime + '; charset=utf-8')
+            self.send_header('Content-Type', mime + ('; charset=utf-8' if mime in TEXT_TYPES else ''))
             self.send_header('Content-Length', str(len(payload)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
@@ -197,9 +233,13 @@ def make_handler(store):
                     self.respond(store.detail(parse_qs(url.query).get('id', [''])[0]))
                 elif url.path == '/api/focus':
                     self.respond(store.focus())
-                elif url.path in {'/', '/app.js', '/style.css'}:
-                    filename, mime = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'application/javascript'), '/style.css': ('style.css', 'text/css')}[url.path]
-                    self.respond((ROOT/'review_web'/filename).read_bytes(), mime=mime)
+                elif url.path == '/api/charm':
+                    self.respond(store.charm())
+                elif url.path == '/api/profile':
+                    self.respond(store.profile())
+                elif not url.path.startswith('/api/') and (found := static_file(url.path)):
+                    path, mime = found
+                    self.respond(path.read_bytes(), mime=mime)
                 else:
                     self.respond({'error': 'Not found'}, 404)
             except KeyError:

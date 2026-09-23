@@ -23,8 +23,6 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-import requests
-
 DEFAULT_CHAMPIONS = ["Ahri", "Zoe"]
 
 SCHEMA = """
@@ -116,6 +114,8 @@ class RiotClient:
     LIMITS = [(19, 1.0), (95, 120.0)]
 
     def __init__(self, api_key, region):
+        # Imported here so analyze.py and review_app.py stay standard-library only.
+        import requests
         self.base = f"https://{region}.api.riotgames.com"
         self.session = requests.Session()
         self.session.headers["X-Riot-Token"] = api_key
