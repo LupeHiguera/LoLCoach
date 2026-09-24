@@ -226,3 +226,4 @@ data/
 demo/data/
 # deploy_demo.ps1 output (copies of review_web/)
 demo/
+.claude/
