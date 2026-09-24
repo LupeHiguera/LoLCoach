@@ -1,7 +1,12 @@
 """Local, dependency-free post-game review. Run: python review_app.py"""
 import argparse
 import json
+import os
+import re
 import sqlite3
+import subprocess
+import sys
+import threading
 from contextlib import closing
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -266,6 +271,81 @@ def find_moments(frames, deaths, cadence):
 VIDEO_TYPES = {'.mp4': 'video/mp4', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
                '.mov': 'video/quicktime'}
 CHUNK = 1 << 20
+# Recent Ahri/Zoe games fetch_matches.py checks per refresh. Stored games cost no match calls.
+FETCH_COUNT = 20
+FETCH_PROGRESS = re.compile(r'\[(\d+)/(\d+)\]')
+
+
+class Fetcher:
+    """Runs fetch_matches.py in a child process, one run at a time.
+
+    A child process keeps this app standard-library only, and a rejected key
+    (fetch_matches exits) cannot stop the server. `added` counts reviewable games
+    (Ahri/Zoe mid with a timeline) gained by the run, not every match stored.
+    """
+
+    def __init__(self, db_path, count_games, command=None):
+        self.count_games = count_games
+        self.command = command or [sys.executable, str(ROOT/'fetch_matches.py'),
+                                   '--count', str(FETCH_COUNT), '--db', str(Path(db_path).resolve())]
+        self.lock = threading.Lock()
+        self.state = dict(running=False, started_at=None, finished_at=None, ok=None,
+                          message='', progress=None, added=None)
+
+    def status(self):
+        with self.lock:
+            return dict(self.state)
+
+    def start(self):
+        with self.lock:
+            if self.state['running']:
+                return dict(self.state)
+            self.state = dict(running=True, started_at=now(), finished_at=None, ok=None,
+                              message='Starting fetch_matches.py', progress=None, added=None)
+        threading.Thread(target=self._run, args=(self._count(),), daemon=True).start()
+        return self.status()
+
+    def _count(self):
+        try:
+            return self.count_games()
+        except sqlite3.Error:
+            return None
+
+    def _run(self, before):
+        lines = []
+        env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1')
+        try:
+            proc = subprocess.Popen(self.command, cwd=ROOT, env=env, text=True, encoding='utf-8',
+                                    errors='replace', stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            for line in proc.stdout:
+                if not line.strip():
+                    continue
+                lines.append(line.strip())
+                if m := FETCH_PROGRESS.search(line):
+                    with self.lock:
+                        self.state.update(progress=[int(m[1]), int(m[2])],
+                                          message=f'Checked {m[1]} of {m[2]} games')
+            code = proc.wait()
+        except OSError as exc:
+            code, lines = -1, [f'Could not start fetch_matches.py: {exc}']
+        after = self._count()
+        added = after - before if before is not None and after is not None else None
+        with self.lock:
+            self.state.update(running=False, finished_at=now(), ok=code == 0, added=added,
+                              message=fetch_message(code, lines, added))
+
+
+def fetch_message(code, lines, added):
+    """One line for the status bar: what the fetch did, or why it stopped."""
+    if code == 0:
+        if not added:
+            return 'No new games.' if added == 0 else 'Fetch finished.'
+        return f'Added {added} new game{"s" * (added != 1)}.'
+    last = lines[-1] if lines else f'fetch_matches.py exited with code {code}.'
+    if "No module named 'requests'" in last:
+        return 'fetch_matches.py needs requests: run py -m pip install requests, then retry.'
+    return last[:300]
+
 
 
 def byte_range(header, size):
@@ -287,8 +367,9 @@ def byte_range(header, size):
     return start, end
 
 
-def make_handler(store, rec=None):
+def make_handler(store, rec=None, fetcher=None):
     rec = rec or recorder.Recorder(store.notes_path)
+    fetcher = fetcher or Fetcher(store.matches_path, lambda: len(store.matches()))
 
     class Handler(BaseHTTPRequestHandler):
         def respond(self, data, status=200, mime='application/json'):
@@ -362,6 +443,8 @@ def make_handler(store, rec=None):
                 elif url.path == '/api/recorder':
                     store.link_recordings()
                     self.respond(rec.status())
+                elif url.path == '/api/fetch':
+                    self.respond(fetcher.status())
                 elif url.path == '/api/recording-file':
                     path = store.recording_path(parse_qs(url.query).get('id', [''])[0])
                     if path is None:
@@ -401,6 +484,8 @@ def make_handler(store, rec=None):
                     if type(body.get('armed')) is not bool:
                         raise ValueError('armed must be true or false')
                     result = rec.set_armed(body['armed'])
+                elif self.path == '/api/fetch':
+                    result = fetcher.start()
                 else:
                     self.respond({'error': 'Not found'}, 404)
                     return

@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   1. python export_demo.py  -> demo/data/*.json (scrubbed snapshot; skip with -SkipExport)
-  2. Copies the review UI (index.html, app.js, style.css, fonts/) into demo/ and marks it
+  2. Copies the review UI (index.html, app.js, style.css) into demo/ and marks it
      <html data-mode="demo">, so app.js reads data/*.json and disables every save.
   3. Only with -Publish: aws s3 sync to a private bucket and a CloudFront invalidation.
 
@@ -34,9 +34,7 @@ if (-not $SkipExport) {
 if (-not (Test-Path (Join-Path $demo 'data\matches.json'))) { throw 'demo\data\matches.json is missing. Run without -SkipExport.' }
 
 # UI files only: never review_web\mock (dev fixtures) or anything else in the folder.
-New-Item -ItemType Directory -Force (Join-Path $demo 'fonts') | Out-Null
 Copy-Item (Join-Path $web 'app.js'), (Join-Path $web 'style.css') $demo -Force
-Copy-Item (Join-Path $web 'fonts\*') (Join-Path $demo 'fonts') -Force
 
 # No server sends headers here, so the CSP goes in a meta tag (frame-ancestors is header-only).
 $csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:"

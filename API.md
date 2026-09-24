@@ -279,6 +279,29 @@ game ends, not cut off.
 
 Nothing is ever shown in game. No LCU, no input hooks.
 
+## GET /api/fetch (new)
+
+State of the last "Fetch new" run. Before any run, `running` is false and the rest are
+`null` or empty.
+
+```json
+{"running": true, "started_at": "2026-09-24T05:40:00+00:00", "finished_at": null,
+ "ok": null, "message": "Checked 3 of 20 games", "progress": [3, 20], "added": null}
+```
+
+- `message`: progress while running; afterwards `"Added 2 new games."`, `"No new games."`,
+  or the last line fetch_matches.py printed when it failed (for example the expired-key
+  message).
+- `added`: reviewable games (Ahri/Zoe mid with a timeline) gained by the run; `null` if
+  either count was unavailable.
+
+## POST /api/fetch (new)
+
+Body `{}`. Starts `fetch_matches.py --count 20` against this app's `league.db` in a child
+process and returns the GET shape. If a run is already going, returns its state instead of
+starting another. Same Host/Origin checks as other POSTs. Uses `RIOT_API_KEY` and
+`RIOT_ID` from `.env`; only official Riot APIs are called.
+
 ---
 
 ## Demo snapshot (`demo/data/*.json`, new)
