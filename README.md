@@ -14,8 +14,8 @@ Re-running only downloads new matches. `--summary-only` prints the lane table wi
 ## Local review app
 
 Run `python review_app.py` (Python 3.10+, standard library only), then open
-http://127.0.0.1:8765. On this Windows machine, `powershell -ExecutionPolicy Bypass -File .\start_review.ps1`
-also finds the Python runtime bundled with Codex. Keep the terminal running; Ctrl+C stops the app.
+http://127.0.0.1:8765 (on Windows, `py review_app.py` works if `python` opens the Microsoft
+Store). Keep the terminal running; Ctrl+C stops the app.
 
 The app opens ranked solo/duo by default and lets you filter Ahri/Zoe mid games by
 champion, queue, and result. Review gold/XP/lane-CS differences over the full match,
