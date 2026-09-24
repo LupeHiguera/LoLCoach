@@ -222,3 +222,5 @@ __marimo__/
 data/
 .vs/
 .idea/
+# export_demo.py output built from real matches; review before publishing
+demo/data/
