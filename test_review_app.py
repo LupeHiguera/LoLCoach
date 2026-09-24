@@ -5,6 +5,7 @@ import threading
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
@@ -106,6 +107,10 @@ class PersistenceTests(unittest.TestCase):
             with urlopen(base+'/') as r:
                 self.assertTrue(r.headers['Content-Type'].startswith('text/html'))
                 self.assertIn(b'<', r.read())
+            static = Path(self.tmp.name)/'data.json'; static.write_text('{"goal": ""}')
+            with mock.patch('review_app.static_file', return_value=(static, 'application/json')),                     urlopen(base+'/data.json') as r:  # static JSON is served as-is, not re-encoded
+                self.assertTrue(r.headers['Content-Type'].startswith('application/json'))
+                self.assertEqual(r.read(), b'{"goal": ""}')
             for path in ['/api/match?id=absent','/.env','/../league.db']:
                 with self.assertRaises(HTTPError) as error:
                     urlopen(base+path)
