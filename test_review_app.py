@@ -170,6 +170,56 @@ class StatsApiTests(unittest.TestCase):
         self.assertEqual(set(stat), {'key', 'label', 'value', 'ci', 'unit', 'n'})
 
 
+class FakeRecorder:
+    def __init__(self):
+        self.armed = False
+
+    def status(self):
+        return {'armed': self.armed, 'obs': 'stopped', 'game': 'idle', 'last': None}
+
+    def set_armed(self, armed):
+        self.armed = armed
+        return self.status()
+
+
+class RecorderApiTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db, self.notes = [Path(self.tmp.name)/name for name in ('league.db', 'reviews.db')]
+        schema_db(self.db, [(("A", "Ahri", True), dict(start=1))])
+        self.rec = FakeRecorder()
+        self.server, self.thread, self.base = serve(ReviewStore(self.db, self.notes), self.rec)
+
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close(); self.thread.join()
+        self.tmp.cleanup()
+
+    def post(self, body, origin=None):
+        req = Request(self.base + '/api/recorder', data=json.dumps(body).encode(),
+                      headers={'Content-Type': 'application/json', 'Origin': origin or self.base})
+        with urlopen(req) as r:
+            return json.load(r)
+
+    def test_get_and_toggle(self):
+        with urlopen(self.base + '/api/recorder') as r:
+            self.assertEqual(set(json.load(r)), {'armed', 'obs', 'game', 'last'})
+        self.assertTrue(self.post({'armed': True})['armed'])
+        self.assertFalse(self.post({'armed': False})['armed'])
+
+    def test_rejects_non_bool_and_foreign_origin(self):
+        for body, origin, code in [({'armed': 'yes'}, None, 400), ({'armed': 1}, None, 400),
+                                   ({'armed': True}, 'https://example.com', 403)]:
+            with self.subTest(body=body, origin=origin), self.assertRaises(HTTPError) as error:
+                self.post(body, origin)
+            self.assertEqual(error.exception.code, code)
+        self.assertFalse(self.rec.armed)
+
+    def test_missing_recording_file_is_404(self):
+        with self.assertRaises(HTTPError) as error:
+            urlopen(self.base + '/api/recording-file?id=A')
+        self.assertEqual(error.exception.code, 404)
+
+
 class StaticFileTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
