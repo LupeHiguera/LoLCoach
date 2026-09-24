@@ -24,7 +24,7 @@ const skeleton = (cols, rows = 6) =>
 const emptyRow = (cols, html) => `<tr class="empty-row"><td colspan="${cols}">${html}</td></tr>`;
 
 const state = {
-  matches: [], detail: null, moment: null, metric: 'gold_diff',
+  matches: [], detail: null, moment: null, metric: 'gold_diff', killFilter: 'all',
   dirty: false, focusDirty: false, focus: null, videoURL: null, request: 0,
   view: 'review', loaded: {}, charm: null, profile: null,
 };
@@ -143,7 +143,7 @@ async function loadMatch(id) {
     state.detail = detail; state.moment = null; state.dirty = false;
     clearVideo(); showLinkedRecording();
     $('review-empty').hidden = true; $('detail').hidden = false;
-    renderMatchHeader(); renderMatches(); renderChart(); renderMoments(); renderReviewForm();
+    renderMatchHeader(); renderMatches(); renderChart(); renderMoments(); renderKills(); renderReviewForm();
     status(`Loaded ${detail.match.my_champion} vs ${detail.match.opp_champion || 'unknown'} · ${isoDay(detail.match.game_start_ms)}`, 'note');
   } catch (e) {
     if (request === state.request) status(e.message, 'error');
@@ -155,6 +155,12 @@ function renderMatchHeader() {
   $('match-title').textContent = `${m.my_champion} vs ${m.opp_champion || 'unknown opponent'}`;
   $('match-result').innerHTML = `${result(m.win)} ${m.win ? 'Victory' : 'Defeat'}`;
   $('match-meta').textContent = [isoDay(m.game_start_ms), QUEUES[m.queue_id] || `Queue ${m.queue_id}`, `Patch ${m.patch}`, clock(m.duration_s * 1000)].join(' · ');
+  const s = state.detail.score;
+  const parts = [];
+  if (s && s.kills != null) parts.push(`K/D/A ${s.kills} / ${s.deaths} / ${s.assists}`);
+  if (s && s.team_kills != null) parts.push(`Team kills ${s.team_kills}–${s.enemy_kills} (timeline)`);
+  $('match-score').textContent = parts.join(' · ');
+  $('match-score').hidden = !parts.length;
 }
 
 // ---------------------------------------------------------------- timeline chart
@@ -192,7 +198,8 @@ function renderChart() {
     $('chart-readout').textContent = '';
     return;
   }
-  const W = 860, H = 250, L = 56, R = 112, T = 14, B = 214;
+  const kills = d.kills || [];
+  const W = 860, L = 56, R = 112, S = kills.length ? 36 : 0, T = 14 + S, B = 214 + S, H = 250 + S;
   const duration = Math.max(d.match.duration_s * 1000, ...frames.map(f => f.time), 60000);
   const peak = Math.max(key === 'cs_diff' ? 10 : 300, ...points.map(f => Math.abs(f[key])));
   const step = niceStep(peak), limit = Math.ceil(peak / step) * step;
@@ -225,6 +232,7 @@ function renderChart() {
   }
   svg += `<path class="area-pos" d="${area}" clip-path="url(#clip-pos)"/><path class="area-neg" d="${area}" clip-path="url(#clip-neg)"/>`;
   svg += `<path class="line" d="${line}"/>`;
+  if (kills.length) svg += killStrip(kills, x, L, W - R);
   for (const ts of d.deaths || []) {
     const v = valueAt(frames, key, ts, d.cadence_ms);
     svg += `<text class="death" x="${x(ts)}" y="${y(v ?? 0) + 5}" text-anchor="middle">✕<title>Your death at ${clock(ts)}</title></text>`;
@@ -255,11 +263,74 @@ document.querySelectorAll('[data-metric]').forEach(b => b.onclick = () => {
   if (state.detail) renderChart();
 });
 
+/** Two rows of ticks above the plot: kills by my team, then kills by the enemy team. Thick = I took part. */
+function killStrip(kills, x, left, right) {
+  let svg = '';
+  [['ally', 'Team', 10], ['enemy', 'Enemy', 28]].forEach(([side, label, y0]) => {
+    svg += `<text class="axis" x="${left - 6}" y="${y0 + 8}" text-anchor="end">${label}</text>`;
+    svg += `<line class="grid" x1="${left}" x2="${right}" y1="${y0 + 10}" y2="${y0 + 10}"/>`;
+    for (const k of kills.filter(k => k.side === side)) {
+      svg += `<line class="kill-${side}${k.me ? ' kill-mine' : ''}" x1="${x(k.time)}" x2="${x(k.time)}" y1="${y0}" y2="${y0 + 10}"><title>${clock(k.time)} ${esc(killLabel(k))}${k.me ? ` (your ${k.me})` : ''}</title></line>`;
+    }
+    const n = kills.filter(k => k.side === side).length;
+    svg += `<text class="direct" x="${right + 8}" y="${y0 + 9}">${n} kills</text>`;
+  });
+  return svg;
+}
+
+// ---------------------------------------------------------------- kills (timeline champion kills)
+const ROLE = {kill: 'Kill', death: 'Died', assist: 'Assist'};
+/** Which team got the kill; colour paired with a glyph and a word (UI.md §3). */
+const SIDE = {ally: '<span class="res win"><span class="g" aria-hidden="true">▲</span>Team</span>',
+  enemy: '<span class="res loss"><span class="g" aria-hidden="true">▼</span>Enemy</span>'};
+const killLabel = k => `${k.killer || 'Executed'} → ${k.victim || '?'}`;
+
+/** The 30 s before a kill, as a moment for the review form. */
+const killMoment = k => ({id: `kill-${k.time}`, start_ms: Math.max(0, k.time - 30000), end_ms: k.time, kind: 'kill',
+  title: killLabel(k), description: 'The 30 seconds before this kill event.'});
+
+function renderKills() {
+  const d = state.detail, body = $('kills');
+  document.querySelectorAll('[data-kills]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kills === state.killFilter)));
+  if (!Array.isArray(d.kills)) {
+    $('kill-count').textContent = '';
+    body.innerHTML = emptyRow(5, READ_ONLY ? 'This snapshot has no kill list. Rebuild it with <code>python export_demo.py</code>.'
+      : 'This review_app.py sends no kill list. Update it and restart it, then reload.');
+    return;
+  }
+  const mine = d.kills.filter(k => k.me);
+  const list = state.killFilter === 'me' ? mine : d.kills;
+  $('kill-count').textContent = `n=${d.kills.length} · with you ${mine.length}`;
+  state.killRows = list;
+  body.innerHTML = list.map((k, i) => `<tr data-index="${i}" class="${state.moment && state.moment.id === `kill-${k.time}` ? 'selected' : ''}">
+      <td class="num">${clock(k.time)}</td>
+      <td>${SIDE[k.side] || '<span class="cell-note">?</span>'}</td>
+      <td><button class="linkbtn" type="button">${esc(killLabel(k))}</button></td>
+      <td class="cell-note">${k.assists.length ? esc(k.assists.join(', ')) : '—'}</td>
+      <td>${k.me ? `<span class="you">${ROLE[k.me]}</span>` : '<span class="cell-note">—</span>'}</td>
+    </tr>`).join('') || emptyRow(5, !d.frames.length
+      ? 'No timeline, so no kill list. Run <code>python fetch_matches.py</code> to import it.'
+      : d.kills.length ? 'You took part in no kills this game. Choose All to see every kill.'
+      : 'No champion kills in this timeline.');
+}
+
+$('kills').onclick = e => {
+  const row = e.target.closest('tr[data-index]');
+  if (row) selectMoment(killMoment(state.killRows[Number(row.dataset.index)]));
+};
+document.querySelectorAll('[data-kills]').forEach(b => b.onclick = () => {
+  state.killFilter = b.dataset.kills;
+  if (state.detail) renderKills();
+});
+
 // ---------------------------------------------------------------- moments (auto prompts + saved snapshots)
 function momentRows() {
   const d = state.detail, rows = [...d.moments];
   for (const r of d.reviews) {
-    if (!rows.some(m => m.id === r.moment_id)) {
+    if (rows.some(m => m.id === r.moment_id)) continue;
+    const kill = (d.kills || []).find(k => `kill-${k.time}` === r.moment_id);
+    if (kill) rows.push(killMoment(kill));
+    else {
       rows.push({id: r.moment_id, start_ms: r.start_ms, end_ms: r.end_ms, kind: 'custom',
         title: r.start_ms === r.end_ms ? `Snapshot at ${clock(r.start_ms)}` : 'Saved moment', description: 'Chosen from the timeline.'});
     }
@@ -267,7 +338,7 @@ function momentRows() {
   return rows.sort((a, b) => a.end_ms - b.end_ms || a.start_ms - b.start_ms);
 }
 
-const BASIS = {death: 'event timestamp', deficit: 'sampled snapshot', farm: 'sampled snapshots', custom: 'your pick'};
+const BASIS = {death: 'event timestamp', deficit: 'sampled snapshot', farm: 'sampled snapshots', kill: 'kill event', custom: 'your pick'};
 
 function renderMoments() {
   const d = state.detail, rows = momentRows();
@@ -311,7 +382,7 @@ function selectMoment(moment) {
   if (review) for (const k of ['reason', 'evidence', 'observation', 'alternative']) $(k).value = review[k] ?? '';
   renderReviewForm();
   $('saved').textContent = review ? `Saved ${review.updated_at ? new Date(review.updated_at).toLocaleString() : ''}` : 'Not saved';
-  renderMoments(); renderChart();
+  renderMoments(); renderKills(); renderChart();
 }
 
 $('review-form').oninput = () => { state.dirty = true; $('saved').textContent = 'Unsaved changes'; };

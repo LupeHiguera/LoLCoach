@@ -97,10 +97,13 @@ class ReviewStore:
             deaths = [r[0] for r in conn.execute("""SELECT timestamp_ms FROM events
                 WHERE match_id=? AND type='CHAMPION_KILL' AND victim_id=? ORDER BY timestamp_ms""",
                 (match_id, match['my_participant_id']))]
+            kills = kill_feed(conn, match_id, match['my_participant_id'])
+            totals = score(conn, match_id, match['my_participant_id'], kills)
         moments = find_moments(frames, deaths, cadence)
         with closing(connect(self.notes_path)) as conn:
             reviews = [dict(r) for r in conn.execute("SELECT * FROM reviews WHERE match_id=? ORDER BY start_ms", (match_id,))]
-        return dict(match=match, frames=frames, deaths=deaths, moments=moments, reviews=reviews,
+        return dict(match=match, frames=frames, deaths=deaths, score=totals, kills=kills,
+                    moments=moments, reviews=reviews,
                     cadence_ms=cadence, recording=self.recording(match_id))
 
     def link_recordings(self):
@@ -187,6 +190,39 @@ def text_field(body, key, maximum):
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def kill_feed(conn, match_id, me):
+    """Every champion kill in the timeline, from my team's point of view (API.md, `kills`).
+
+    Champion names only. `side` says which team got the kill; `me` is my part in it.
+    Kills credited to towers, minions or monsters have killer None.
+    """
+    players = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT participant_id, champion, team_id FROM participants WHERE match_id=?", (match_id,))}
+    my_team = players.get(me, (None, None))[1]
+    feed = []
+    for time, killer, victim, assisting, x, y in conn.execute("""SELECT timestamp_ms, killer_id,
+            victim_id, assisting_ids, x, y FROM events WHERE match_id=? AND type='CHAMPION_KILL'
+            ORDER BY timestamp_ms, id""", (match_id,)):
+        helpers = json.loads(assisting) if assisting else []
+        victim_team = players.get(victim, (None, None))[1]
+        side = None if victim_team is None or my_team is None else ('enemy' if victim_team == my_team else 'ally')
+        role = 'kill' if killer == me else 'death' if victim == me else 'assist' if me in helpers else None
+        feed.append(dict(time=time, side=side, killer=players.get(killer, (None,))[0],
+                         victim=players.get(victim, (None,))[0], me=role, x=x, y=y,
+                         assists=[players[h][0] for h in helpers if h in players]))
+    return feed
+
+
+def score(conn, match_id, me, feed):
+    """My end-of-game K/D/A plus team kill totals counted from the timeline feed."""
+    row = conn.execute("SELECT kills, deaths, assists FROM participants WHERE match_id=? AND participant_id=?",
+                       (match_id, me)).fetchone()
+    kda = dict(zip(('kills', 'deaths', 'assists'), row)) if row else dict(kills=None, deaths=None, assists=None)
+    known = [k for k in feed if k['side']]
+    return dict(kda, team_kills=sum(k['side'] == 'ally' for k in known) if known else None,
+                enemy_kills=sum(k['side'] == 'enemy' for k in known) if known else None)
 
 
 def find_moments(frames, deaths, cadence):

@@ -113,6 +113,9 @@ def check_scrubbed(files, forbidden):
     """Refuse the export if any identifier string appears anywhere in the output."""
     champions = {m[k] for m in files.get("matches.json", [])
                  for k in ("my_champion", "opp_champion") if m.get(k)}
+    champions.update(name for rel, data in files.items() if rel.startswith("match/")
+                     for k in data.get("kills", [])
+                     for name in [k.get("killer"), k.get("victim"), *k.get("assists", [])] if name)
     text = json.dumps(files, ensure_ascii=False)
     leaks = sorted(s for s in forbidden
                    if len(s) >= MIN_CHECK_LEN and s not in champions and s in text)

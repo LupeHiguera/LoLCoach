@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
 from fetch_matches import SCHEMA, store_match
-from review_app import ReviewStore, find_moments, make_handler, static_file
+from review_app import ReviewStore, find_moments, kill_feed, make_handler, score, static_file
 from test_analyze import ME, match as riot_match
 
 
@@ -42,6 +42,48 @@ class MomentTests(unittest.TestCase):
         self.assertEqual(moments[0]['end_ms'], 180000)
 
 
+class KillFeedTests(unittest.TestCase):
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.executescript(SCHEMA)
+        self.conn.executemany("INSERT INTO participants (match_id, participant_id, champion, team_id,"
+                              " kills, deaths, assists) VALUES ('m',?,?,?,?,?,?)",
+                              [(1, 'Ahri', 100, 1, 1, 2), (2, 'Lee Sin', 100, 0, 0, 1),
+                               (6, 'Akali', 200, 1, 1, 0), (7, 'Jinx', 200, 0, 0, 0)])
+
+    def tearDown(self):
+        self.conn.close()
+
+    def kill(self, time, killer, victim, assists=None, pos=(5000, 6000)):
+        self.conn.execute("INSERT INTO events (match_id, timestamp_ms, type, killer_id, victim_id,"
+                          " assisting_ids, x, y) VALUES ('m',?,'CHAMPION_KILL',?,?,?,?,?)",
+                          (time, killer, victim, json.dumps(assists) if assists is not None else None, *pos))
+
+    def test_sides_roles_and_names(self):
+        self.kill(300000, 6, 1, [7])
+        self.kill(200000, 1, 6, [2])
+        self.kill(400000, 7, 2, [], pos=(None, None))
+        self.kill(500000, 0, 7)  # executed by a tower
+        feed = kill_feed(self.conn, 'm', 1)
+        self.assertEqual([k['time'] for k in feed], [200000, 300000, 400000, 500000])
+        self.assertEqual([(k['side'], k['me']) for k in feed],
+                         [('ally', 'kill'), ('enemy', 'death'), ('enemy', None), ('ally', None)])
+        self.assertEqual((feed[0]['killer'], feed[0]['victim'], feed[0]['assists']), ('Ahri', 'Akali', ['Lee Sin']))
+        self.assertEqual((feed[2]['x'], feed[2]['y']), (None, None))
+        self.assertIsNone(feed[3]['killer'])
+        self.assertEqual(kill_feed(self.conn, 'm', 2)[0]['me'], 'assist')
+
+    def test_score_uses_riot_kda_and_counts_feed(self):
+        self.kill(200000, 1, 6); self.kill(300000, 6, 1); self.kill(310000, 7, 2)
+        self.assertEqual(score(self.conn, 'm', 1, kill_feed(self.conn, 'm', 1)),
+                         dict(kills=1, deaths=1, assists=2, team_kills=1, enemy_kills=2))
+
+    def test_unknown_is_null_not_zero(self):
+        self.assertEqual(kill_feed(self.conn, 'none', 1), [])
+        self.assertEqual(score(self.conn, 'none', 1, []),
+                         dict(kills=None, deaths=None, assists=None, team_kills=None, enemy_kills=None))
+
+
 class PersistenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -54,7 +96,10 @@ class PersistenceTests(unittest.TestCase):
                 CREATE TABLE timelines(match_id TEXT, frame_interval_ms INTEGER);
                 CREATE TABLE frames(match_id TEXT, participant_id INTEGER, timestamp_ms INTEGER,
                 total_gold INTEGER, xp INTEGER, minions INTEGER, jungle_minions INTEGER);
-                CREATE TABLE events(match_id TEXT, type TEXT, victim_id INTEGER, timestamp_ms INTEGER);
+                CREATE TABLE participants(match_id TEXT, participant_id INTEGER, champion TEXT,
+                team_id INTEGER, kills INTEGER, deaths INTEGER, assists INTEGER);
+                CREATE TABLE events(id INTEGER PRIMARY KEY, match_id TEXT, type TEXT, timestamp_ms INTEGER,
+                killer_id INTEGER, victim_id INTEGER, assisting_ids TEXT, x INTEGER, y INTEGER);
                 INSERT INTO matches VALUES('test',0,600,'16.18',420,'Ahri','MIDDLE','Zoe',1,1,6);
                 INSERT INTO timelines VALUES('test',60000);
                 INSERT INTO frames VALUES('test',1,120000,500,100,5,0);

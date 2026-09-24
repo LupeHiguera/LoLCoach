@@ -303,7 +303,12 @@ legend { font: 15px var(--display); color: var(--brass-500); padding: 0 4px; }
 .chart .pt:hover, .chart .pt:focus-visible { fill: var(--arcane-400); stroke: var(--arcane-400); outline: none; }
 .readout { color: var(--ash); margin-top: 4px; font-variant-numeric: tabular-nums; min-height: 19px; }
 
-.moments-scroll { max-height: 300px; }
+.moments-scroll, .kills-scroll { max-height: 300px; }
+.match-score { margin: -4px 0 8px; font-variant-numeric: tabular-nums; }
+.chart .kill-ally { stroke: var(--win); stroke-width: 2; shape-rendering: crispEdges; }
+.chart .kill-enemy { stroke: var(--loss); stroke-width: 2; shape-rendering: crispEdges; }
+.chart .kill-mine { stroke-width: 3; }
+.stat .you { color: var(--parchment); font-weight: bold; }
 .review-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
 .prompt { color: var(--ash); margin: 0 0 8px; }
 video { display: block; width: 100%; max-height: 360px; background: #000; margin-top: 8px; }

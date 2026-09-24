@@ -83,8 +83,10 @@ class ExportTests(unittest.TestCase):
         self.assertEqual([m["match_id"] for m in files["matches.json"]], ["demo-1", "demo-2"])
         self.assertEqual(files["matches.json"][0]["opp_champion"], "Syndra")
         detail = files["match/demo-1.json"]
-        self.assertEqual(set(detail), {"match", "frames", "deaths", "moments", "reviews",
-                                       "cadence_ms", "recording"})
+        self.assertEqual(set(detail), {"match", "frames", "deaths", "score", "kills", "moments",
+                                       "reviews", "cadence_ms", "recording"})
+        self.assertEqual([(k["killer"], k["victim"], k["me"]) for k in detail["kills"]],
+                         [("Syndra", "Ahri", "death")])
         self.assertEqual((detail["match"]["match_id"], detail["reviews"], detail["recording"]),
                          ("demo-1", [], None))
         self.assertEqual(detail["deaths"], [130_000])
@@ -108,6 +110,9 @@ class ExportTests(unittest.TestCase):
         check_scrubbed(files, {"Zed", "ab"})  # a player named like a champion; too-short id
         with self.assertRaises(ScrubError):
             check_scrubbed(files | {"x": "hello EnemyPlayerName"}, {"EnemyPlayerName"})
+        feed = {"match/demo-1.json": {"kills": [{"killer": "Lee Sin", "victim": "Ahri",
+                                                 "assists": ["Jinx"]}]}}
+        check_scrubbed(files | feed, {"Lee Sin", "Jinx"})  # kill-feed champions too
 
     def test_source_databases_unchanged(self):
         before = self.db.read_bytes()
