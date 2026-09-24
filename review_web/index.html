@@ -83,11 +83,12 @@
       </div>
       <div class="box-body">
         <p class="match-meta" id="match-meta"></p>
+        <p class="match-score" id="match-score"></p>
         <div class="chart-tools">
           <div class="segmented" role="group" aria-label="Timeline metric">
             <button class="btn" type="button" data-metric="gold_diff" aria-pressed="true">Gold</button><button class="btn" type="button" data-metric="xp_diff" aria-pressed="false">XP</button><button class="btn" type="button" data-metric="cs_diff" aria-pressed="false">Lane CS</button>
           </div>
-          <span class="dim">You − assigned lane opponent, per-minute snapshots · ✕ your deaths</span>
+          <span class="dim">You − assigned lane opponent, per-minute snapshots · ✕ your deaths · top strip: champion kills</span>
           <span class="tip-wrap"><button class="info" type="button" aria-label="About the timeline" aria-describedby="tip-chart">ⓘ</button><span class="tip" role="tooltip" id="tip-chart">Differences use matching snapshot timestamps for the assigned lane opponent. Lines connect sampled values and do not show every action; gaps mean missing snapshots. Role swaps and later team play need interpretation. A deficit is a review prompt, not a diagnosis.</span></span>
         </div>
         <div class="chart" id="chart"></div>
@@ -107,6 +108,24 @@
           <caption class="sr-only">Review prompts for this game; select a row to review it</caption>
           <thead><tr><th scope="col" class="num">Time</th><th scope="col">Moment</th><th scope="col">Basis</th><th scope="col">Review</th></tr></thead>
           <tbody id="moments"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="box" aria-labelledby="kills-h">
+      <div class="titlebar">
+        <h2 id="kills-h">Kills</h2>
+        <span class="meta" id="kill-count"></span>
+        <div class="segmented" role="group" aria-label="Which kills to list">
+          <button class="btn" type="button" data-kills="all" aria-pressed="true">All</button><button class="btn" type="button" data-kills="me" aria-pressed="false">With you</button>
+        </div>
+        <span class="tip-wrap"><button class="info" type="button" aria-label="About the kill list" aria-describedby="tip-kills">ⓘ</button><span class="tip" role="tooltip" id="tip-kills">Every champion kill in Riot's match timeline, with champion names only. K/D/A comes from the end-of-game stats; team totals count this list, so they can differ by one or two from the in-game scoreboard. "Executed" means a tower, minion or monster got the kill. Selecting a row opens the 30 seconds before it for review. A kill shows who was credited, not who decided the fight.</span></span>
+      </div>
+      <div class="scroll kills-scroll">
+        <table class="stat">
+          <caption class="sr-only">Champion kills in this game; select a row to review the 30 seconds before it</caption>
+          <thead><tr><th scope="col" class="num">Time</th><th scope="col">Team</th><th scope="col">Kill</th><th scope="col">Assists</th><th scope="col">You</th></tr></thead>
+          <tbody id="kills"></tbody>
         </table>
       </div>
     </section>

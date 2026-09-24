@@ -58,7 +58,7 @@ Ahri or Zoe games in `MIDDLE` that have a timeline, newest first. No parameters.
 `win` is `0`/`1`. `opp_champion` can be `null` (no lane opponent found). Empty list when
 there are no games.
 
-## GET /api/match?id=<match_id> (current, `recording` is new)
+## GET /api/match?id=<match_id> (current; `recording`, `score`, `kills` are new)
 
 One game for review. 404 `"Match not found"` for an unknown or missing `id`.
 
@@ -73,6 +73,11 @@ One game for review. 404 `"Match not found"` for an unknown or missing `id`.
      "gold_diff": 0, "xp_diff": 0, "cs_diff": 0}
   ],
   "deaths": [303341, 483672],
+  "score": {"kills": 4, "deaths": 7, "assists": 9, "team_kills": 21, "enemy_kills": 34},
+  "kills": [
+    {"time": 303341, "side": "enemy", "killer": "Akali", "victim": "Ahri",
+     "assists": ["Lee Sin"], "me": "death", "x": 6120, "y": 7010}
+  ],
   "moments": [
     {"id": "death-303341", "start_ms": 243341, "end_ms": 303341, "title": "First death",
      "kind": "death", "description": "Review the minute before this death. ..."}
@@ -93,6 +98,18 @@ One game for review. 404 `"Match not found"` for an unknown or missing `id`.
 - `*_diff` = me minus the lane opponent at the same snapshot; `null` when the opponent
   has no snapshot at exactly that time.
 - `deaths` are game-clock ms of my deaths.
+- `score` (**new**): my `kills`/`deaths`/`assists` from Riot's end-of-game stats;
+  `team_kills`/`enemy_kills` count the `kills` list below (the champion kills in the
+  timeline), so they can differ by one or two from the in-game scoreboard. Each is `null`
+  when unknown.
+- `kills` (**new**): every champion kill in the timeline, oldest first. Champion names
+  only, never player names or PUUIDs.
+  - `side`: `ally` when my team got the kill, `enemy` when my team lost a champion.
+  - `killer`: champion name, or `null` when a tower, minion or monster got it.
+  - `assists`: champion names, possibly empty.
+  - `me`: `kill` | `death` | `assist` | `null` (not involved).
+  - `x`, `y`: map position in Summoner's Rift game units (about 0–15000, origin at the
+    blue-side bottom-left corner). `null` if the event had no position.
 - `moments[].kind` is `death` | `deficit` | `farm`. They are review prompts, not mistakes.
 - `reviews` are the user's saved notes for this match (ordered by `start_ms`).
 - `recording` (**new**) is `null` when no recording is linked to this match. Otherwise:
