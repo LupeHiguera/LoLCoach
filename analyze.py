@@ -21,6 +21,7 @@ Sections:
 import argparse
 import json
 import math
+import random
 import sqlite3
 import sys
 from collections import defaultdict
@@ -50,6 +51,14 @@ OPENING_MS = 120_000
 SHOP_GAP_MS = 12_000
 # A death this soon before a shop visit means the "back" was really a respawn.
 DEATH_WINDOW_MS = 25_000
+
+# Bootstrap confidence intervals: resample whole games with replacement.
+# A fixed seed makes the same data always print the same interval.
+CI_ITERATIONS = 2000
+CI_LEVEL = 0.90
+CI_SEED = 1337
+# Below this many games an interval is not computed at all.
+CI_MIN_GAMES = 2
 
 
 # ---------------------------------------------------------------- geometry
@@ -385,6 +394,50 @@ def section_deaths(conn, records, size=21):
             print("    |" + " ".join(cells) + "|")
 
 
+# ---------------------------------------------------------------- uncertainty
+
+def bootstrap_ci(games, statistic, iterations=CI_ITERATIONS, level=CI_LEVEL, seed=CI_SEED):
+    """Percentile bootstrap interval for `statistic` over a list of games.
+
+    Games are resampled with replacement, so the interval reflects game-to-game
+    variation in *your* sample. It says how much the number could move with
+    different games like these; it does not correct for matchups, patches or a
+    biased sample, and it is None below CI_MIN_GAMES games.
+    """
+    if len(games) < CI_MIN_GAMES:
+        return None
+    rng = random.Random(seed)
+    values = []
+    for _ in range(iterations):
+        value = statistic(rng.choices(games, k=len(games)))
+        if value is not None:
+            values.append(value)
+    if not values:
+        return None
+    values.sort()
+    tail = (1 - level) / 2
+    lo = values[int(tail * (len(values) - 1))]
+    hi = values[int(math.ceil((1 - tail) * (len(values) - 1)))]
+    return [lo, hi]
+
+
+def ci_method():
+    """How intervals are computed, for captions next to the numbers."""
+    return {"ci_level": CI_LEVEL, "iterations": CI_ITERATIONS, "resample": "game"}
+
+
+def pct_range(ci, width=12):
+    if ci is None:
+        return "-".rjust(width)
+    return f"{100 * ci[0]:.0f}-{100 * ci[1]:.0f}%".rjust(width)
+
+
+def num_range(ci, width=12, places=1):
+    if ci is None:
+        return "-".rjust(width)
+    return f"{ci[0]:.{places}f}-{ci[1]:.{places}f}".rjust(width)
+
+
 # ---------------------------------------------------------------- charm
 
 def my_stats(conn, champions=None):
@@ -441,6 +494,45 @@ def pct(value, width=6):
     return "-".rjust(width) if value is None else f"{100 * value:{width - 1}.0f}%"
 
 
+def rounded(value, places=4):
+    return None if value is None else round(value, places)
+
+
+def charm_group(rows):
+    """{n, rate, ci} for a set of games: pooled rate with a per-game bootstrap CI.
+
+    The rate is an end-of-game estimate (immobilizations / E casts), not a hit
+    log, and a gap between two groups is not evidence of what caused it.
+    """
+    ci = bootstrap_ci(rows, ratio)
+    return {"n": len(rows), "rate": rounded(ratio(rows)),
+            "ci": [rounded(v) for v in ci] if ci else None}
+
+
+def charm_report(conn):
+    """The /api/charm payload: per game (newest first), W/L split, by opponent."""
+    rows = charm_records(conn)
+    games = [{"match_id": r["match_id"], "start": r["date"], "opponent": r["opp"],
+              "win": bool(r["win"]), "casts": r["casts"], "hits": r["hits"],
+              "rate": rounded(r["hits"] / r["casts"]), "per_min": rounded(r["per_min"], 3)}
+             for r in reversed(rows)]
+    groups = defaultdict(list)
+    for r in rows:
+        groups[r["opp"]].append(r)
+    by_opp = [dict(opponent=opp, **charm_group(g))
+              for opp, g in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0] or ""))]
+    return {"games": games,
+            "summary": {"all": charm_group(rows),
+                        "wins": charm_group([r for r in rows if r["win"]]),
+                        "losses": charm_group([r for r in rows if not r["win"]])},
+            "by_opponent": by_opp,
+            "method": ci_method()}
+
+
+def charm_line(label, group):
+    return f"  {label:<18}{group['n']:>3}  {pct(group['rate'])}{pct_range(group['ci'], 12)}"
+
+
 def section_charm(conn, min_games=1):
     rows = charm_records(conn)
     print("\nCharm estimate - enemy immobilizations per E cast (Ahri)")
@@ -457,16 +549,16 @@ def section_charm(conn, min_games=1):
               f"{num(r['per_min'], 7, 2)}")
 
     print("-" * 64)
-    wins = [r for r in rows if r["win"]]
-    losses = [r for r in rows if not r["win"]]
-    print(f"  All games   {len(rows):>3}  {pct(ratio(rows))}"
-          f"   ({sum(r['hits'] for r in rows)}/{sum(r['casts'] for r in rows)})")
-    print(f"  Wins        {len(wins):>3}  {pct(ratio(wins))}")
-    print(f"  Losses      {len(losses):>3}  {pct(ratio(losses))}")
+    ci_head = f"{CI_LEVEL:.0%} CI"
+    print(f"  {'':<18}{'n':>3}  {'rate':>6}{ci_head:>12}")
+    print(charm_line("All games", charm_group(rows))
+          + f"   ({sum(r['hits'] for r in rows)}/{sum(r['casts'] for r in rows)})")
+    print(charm_line("Wins", charm_group([r for r in rows if r["win"]])))
+    print(charm_line("Losses", charm_group([r for r in rows if not r["win"]])))
     if len(rows) >= 6:
         half = len(rows) // 2
-        print(f"  Older half  {half:>3}  {pct(ratio(rows[:half]))}")
-        print(f"  Newer half  {len(rows) - half:>3}  {pct(ratio(rows[half:]))}")
+        print(charm_line("Older half", charm_group(rows[:half])))
+        print(charm_line("Newer half", charm_group(rows[half:])))
 
     groups = defaultdict(list)
     for r in rows:
@@ -475,41 +567,80 @@ def section_charm(conn, min_games=1):
     if shown:
         print("\n  By opponent")
         for opp, g in sorted(shown, key=lambda kv: (-len(kv[1]), kv[0])):
-            print(f"    {opp:<16}{len(g):>3}  {pct(ratio(g))}")
+            print(charm_line(opp, charm_group(g)))
     print("\n  An estimate from end-of-game totals; win/loss gaps do not show cause.")
+    print(f"  CI: {CI_LEVEL:.0%} bootstrap over games ({CI_ITERATIONS} resamples); "
+          f"'-' below {CI_MIN_GAMES} games.")
 
 
 # ---------------------------------------------------------------- profile
 
-# (label, getter, format) for the per-champion habit table.
+def _challenge(name):
+    return lambda p, m: (p.get("challenges") or {}).get(name)
+
+
+# (key, label, getter(participant, duration_s), CLI format, unit) for the habit table.
+# unit: "ratio" is 0-1 (shown as %), "per_10m" per 10 game minutes, "per_min" per minute.
 PROFILE_STATS = [
-    ("deaths/10m", lambda p, m: 600 * p.get("deaths", 0) / m if m else None, 1),
-    ("kp", lambda p, m: (p.get("challenges") or {}).get("killParticipation"), "pct"),
-    ("dmg share", lambda p, m: (p.get("challenges") or {}).get("teamDamagePercentage"), "pct"),
-    ("taken share", lambda p, m: (p.get("challenges") or {}).get("damageTakenOnTeamPercentage"), "pct"),
-    ("vision/m", lambda p, m: (p.get("challenges") or {}).get("visionScorePerMinute"), 2),
-    ("dead %", lambda p, m: p.get("totalTimeSpentDead", 0) / m if m else None, "pct"),
+    ("deaths_per_10m", "deaths/10m",
+     lambda p, m: 600 * p.get("deaths", 0) / m if m else None, 1, "per_10m"),
+    ("kill_participation", "kp", _challenge("killParticipation"), "pct", "ratio"),
+    ("damage_share", "dmg share", _challenge("teamDamagePercentage"), "pct", "ratio"),
+    ("damage_taken_share", "taken share", _challenge("damageTakenOnTeamPercentage"),
+     "pct", "ratio"),
+    ("vision_per_min", "vision/m", _challenge("visionScorePerMinute"), 2, "per_min"),
+    ("time_dead_share", "dead %",
+     lambda p, m: p.get("totalTimeSpentDead", 0) / m if m else None, "pct", "ratio"),
 ]
+
+
+def profile_report(conn):
+    """The /api/profile payload: per-champion mean of each habit with a per-game CI.
+
+    Each value is a plain mean over the games that have the stat. The CI shows
+    how much it could move with other games like these; it does not make roles
+    comparable (a support's vision is not a mid's) and does not explain wins.
+    """
+    groups = defaultdict(list)
+    for game, me in my_stats(conn):
+        groups[game["champ"]].append((game, me))
+    champions = []
+    for champ, rows in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        stats = []
+        for key, label, get, _fmt, unit in PROFILE_STATS:
+            values = [v for v in (get(me, g["duration"]) for g, me in rows) if v is not None]
+            ci = bootstrap_ci(values, mean)
+            stats.append({"key": key, "label": label, "value": rounded(mean(values)),
+                          "ci": [rounded(v) for v in ci] if ci else None,
+                          "unit": unit, "n": len(values)})
+        champions.append({"champion": champ, "n": len(rows),
+                          "wins": sum(1 for g, _ in rows if g["win"]), "stats": stats})
+    return {"champions": champions, "method": ci_method()}
 
 
 def section_profile(conn, min_games=3):
     """End-of-game habits per champion you play, e.g. Ahri next to Lulu."""
-    groups = defaultdict(list)
-    for game, me in my_stats(conn):
-        groups[game["champ"]].append((game, me))
     print(f"\nProfile - end-of-game habits per champion (min {min_games} games)")
-    print(f"{'champion':<14}{'n':>3}{'W-L':>7}" + "".join(f"{s[0]:>12}" for s in PROFILE_STATS))
+    print(f"{'champion':<14}{'n':>3}{'W-L':>7}" + "".join(f"{s[1]:>12}" for s in PROFILE_STATS))
     print("-" * (24 + 12 * len(PROFILE_STATS)))
-    for champ, rows in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-        if len(rows) < min_games:
+    ci_head = f"{CI_LEVEL:.0%} CI"
+    for champ in profile_report(conn)["champions"]:
+        if champ["n"] < min_games:
             continue
-        wins = sum(g["win"] for g, _ in rows)
-        cells = []
-        for _label, get, fmt in PROFILE_STATS:
-            value = mean([get(me, g["duration"]) for g, me in rows])
-            cells.append(pct(value, 12) if fmt == "pct" else num(value, 12, fmt))
-        print(f"{champ:<14}{len(rows):>3}{f'{wins}-{len(rows) - wins}':>7}" + "".join(cells))
+        cells, ranges = [], []
+        for spec, stat in zip(PROFILE_STATS, champ["stats"]):
+            fmt = spec[3]
+            if fmt == "pct":
+                cells.append(pct(stat["value"], 12))
+                ranges.append(pct_range(stat["ci"], 12))
+            else:
+                cells.append(num(stat["value"], 12, fmt))
+                ranges.append(num_range(stat["ci"], 12, fmt))
+        n, wins = champ["n"], champ["wins"]
+        print(f"{champ['champion']:<14}{n:>3}{f'{wins}-{n - wins}':>7}" + "".join(cells))
+        print(f"{'':<14}{ci_head:>10}" + "".join(ranges))
     print("\n  Different roles have different norms; compare habits, not raw numbers.")
+    print(f"  CI: {CI_LEVEL:.0%} bootstrap over games ({CI_ITERATIONS} resamples).")
 
 
 # ---------------------------------------------------------------- main

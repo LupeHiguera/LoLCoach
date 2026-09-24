@@ -5,11 +5,14 @@ import threading
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
-from review_app import ReviewStore, find_moments, make_handler
+from fetch_matches import SCHEMA, store_match
+from review_app import ReviewStore, find_moments, make_handler, static_file
+from test_analyze import ME, match as riot_match
 
 
 def frame(minute, cs, gold=0):
@@ -102,7 +105,12 @@ class PersistenceTests(unittest.TestCase):
             with urlopen(base+'/api/matches') as r:
                 self.assertEqual(json.load(r)[0]['match_id'],'test')
             with urlopen(base+'/') as r:
-                self.assertIn(b'Find your next good habit',r.read())
+                self.assertTrue(r.headers['Content-Type'].startswith('text/html'))
+                self.assertIn(b'<', r.read())
+            static = Path(self.tmp.name)/'data.json'; static.write_text('{"goal": ""}')
+            with mock.patch('review_app.static_file', return_value=(static, 'application/json')),                     urlopen(base+'/data.json') as r:  # static JSON is served as-is, not re-encoded
+                self.assertTrue(r.headers['Content-Type'].startswith('application/json'))
+                self.assertEqual(r.read(), b'{"goal": ""}')
             for path in ['/api/match?id=absent','/.env','/../league.db']:
                 with self.assertRaises(HTTPError) as error:
                     urlopen(base+path)
@@ -116,6 +124,127 @@ class PersistenceTests(unittest.TestCase):
                 self.assertTrue(json.load(r)['saved'])
         finally:
             server.shutdown(); server.server_close(); thread.join()
+
+
+def schema_db(path, games):
+    """A league.db built from fetch_matches.SCHEMA with test_analyze.match() games."""
+    with closing(sqlite3.connect(path)) as c:
+        c.executescript(SCHEMA)
+        for args, kwargs in games:
+            store_match(c, riot_match(*args, **kwargs), ME)
+
+
+def serve(store, rec=None):
+    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(store, rec))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread, f'http://127.0.0.1:{server.server_port}'
+
+
+class StatsApiTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db, self.notes = [Path(self.tmp.name)/name for name in ('league.db', 'reviews.db')]
+        schema_db(self.db, [(("A", "Ahri", True), dict(e_casts=10, immobilizations=5, start=1)),
+                            (("B", "Ahri", False), dict(e_casts=20, immobilizations=8, start=2)),
+                            (("L", "Lulu", True), dict(start=3))])
+        self.original = self.db.read_bytes()
+        self.server, self.thread, self.base = serve(ReviewStore(self.db, self.notes))
+
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close(); self.thread.join()
+        self.tmp.cleanup()
+
+    def get(self, path):
+        with urlopen(self.base + path) as r:
+            return json.load(r)
+
+    def test_charm_route(self):
+        data = self.get('/api/charm')
+        self.assertEqual(set(data), {'games', 'summary', 'by_opponent', 'method'})
+        self.assertEqual([g['match_id'] for g in data['games']], ['B', 'A'])
+        self.assertEqual(set(data['summary']), {'all', 'wins', 'losses'})
+        self.assertEqual(data['summary']['all']['n'], 2)
+        self.assertEqual(len(data['summary']['all']['ci']), 2)
+        self.assertEqual(self.db.read_bytes(), self.original)
+
+    def test_profile_route(self):
+        data = self.get('/api/profile')
+        self.assertEqual([c['champion'] for c in data['champions']], ['Ahri', 'Lulu'])
+        stat = data['champions'][0]['stats'][0]
+        self.assertEqual(set(stat), {'key', 'label', 'value', 'ci', 'unit', 'n'})
+
+
+class FakeRecorder:
+    def __init__(self):
+        self.armed = False
+
+    def status(self):
+        return {'armed': self.armed, 'obs': 'stopped', 'game': 'idle', 'last': None}
+
+    def set_armed(self, armed):
+        self.armed = armed
+        return self.status()
+
+
+class RecorderApiTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db, self.notes = [Path(self.tmp.name)/name for name in ('league.db', 'reviews.db')]
+        schema_db(self.db, [(("A", "Ahri", True), dict(start=1))])
+        self.rec = FakeRecorder()
+        self.server, self.thread, self.base = serve(ReviewStore(self.db, self.notes), self.rec)
+
+    def tearDown(self):
+        self.server.shutdown(); self.server.server_close(); self.thread.join()
+        self.tmp.cleanup()
+
+    def post(self, body, origin=None):
+        req = Request(self.base + '/api/recorder', data=json.dumps(body).encode(),
+                      headers={'Content-Type': 'application/json', 'Origin': origin or self.base})
+        with urlopen(req) as r:
+            return json.load(r)
+
+    def test_get_and_toggle(self):
+        with urlopen(self.base + '/api/recorder') as r:
+            self.assertEqual(set(json.load(r)), {'armed', 'obs', 'game', 'last'})
+        self.assertTrue(self.post({'armed': True})['armed'])
+        self.assertFalse(self.post({'armed': False})['armed'])
+
+    def test_rejects_non_bool_and_foreign_origin(self):
+        for body, origin, code in [({'armed': 'yes'}, None, 400), ({'armed': 1}, None, 400),
+                                   ({'armed': True}, 'https://example.com', 403)]:
+            with self.subTest(body=body, origin=origin), self.assertRaises(HTTPError) as error:
+                self.post(body, origin)
+            self.assertEqual(error.exception.code, code)
+        self.assertFalse(self.rec.armed)
+
+    def test_missing_recording_file_is_404(self):
+        with self.assertRaises(HTTPError) as error:
+            urlopen(self.base + '/api/recording-file?id=A')
+        self.assertEqual(error.exception.code, 404)
+
+
+class StaticFileTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.web = Path(self.tmp.name)/'web'
+        (self.web/'fonts').mkdir(parents=True)
+        (self.web/'index.html').write_text('<p>hi</p>')
+        (self.web/'fonts'/'a.woff2').write_bytes(b'wOF2')
+        (self.web/'notes.txt').write_text('no')
+        (Path(self.tmp.name)/'secret.json').write_text('{}')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_serves_known_types_inside_folder_only(self):
+        self.assertEqual(static_file('/', self.web)[1], 'text/html')
+        self.assertEqual(static_file('/fonts/a.woff2', self.web)[1], 'font/woff2')
+        for bad in ['/notes.txt', '/../secret.json', '/fonts/../../secret.json', '/%2e%2e/secret.json',
+                    '/fonts\a.woff2', '/.env', '/missing.css', '/fonts']:
+            with self.subTest(bad=bad):
+                self.assertIsNone(static_file(bad, self.web))
 
 
 if __name__ == '__main__':
