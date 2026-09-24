@@ -256,7 +256,7 @@ def make_handler(store, rec=None):
 
     class Handler(BaseHTTPRequestHandler):
         def respond(self, data, status=200, mime='application/json'):
-            payload = json.dumps(data).encode() if mime == 'application/json' else data
+            payload = data if isinstance(data, bytes) else json.dumps(data).encode()
             self.send_response(status)
             self.send_header('Content-Type', mime + ('; charset=utf-8' if mime in TEXT_TYPES else ''))
             self.send_header('Content-Length', str(len(payload)))
