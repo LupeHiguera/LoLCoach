@@ -1,5 +1,7 @@
 import json
 import sqlite3
+import sys
+import time
 import tempfile
 import threading
 import unittest
@@ -11,7 +13,7 @@ from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
 from fetch_matches import SCHEMA, store_match
-from review_app import ReviewStore, find_moments, kill_feed, make_handler, score, static_file
+from review_app import Fetcher, ReviewStore, fetch_message, find_moments, kill_feed, make_handler, score, static_file
 from test_analyze import ME, match as riot_match
 
 
@@ -179,8 +181,8 @@ def schema_db(path, games):
             store_match(c, riot_match(*args, **kwargs), ME)
 
 
-def serve(store, rec=None):
-    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(store, rec))
+def serve(store, rec=None, fetcher=None):
+    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(store, rec, fetcher))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread, f'http://127.0.0.1:{server.server_port}'
@@ -268,6 +270,79 @@ class RecorderApiTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             urlopen(self.base + '/api/recording-file?id=A')
         self.assertEqual(error.exception.code, 404)
+
+
+def child(code):
+    """A stand-in for fetch_matches.py: a Python child process running `code`."""
+    return [sys.executable, '-c', code]
+
+
+def finish(fetcher, timeout=10):
+    deadline = time.monotonic() + timeout
+    while fetcher.status()['running'] and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return fetcher.status()
+
+
+class FetcherTests(unittest.TestCase):
+    def test_success_counts_new_games_and_reads_progress(self):
+        counts = iter([3, 5])
+        f = Fetcher('league.db', lambda: next(counts),
+                    child('print("  [1/2] X Ahri: fetched"); print("  [2/2] Y Ahri: cached")'))
+        self.assertTrue(f.start()['running'])
+        state = finish(f)
+        self.assertEqual((state['ok'], state['added'], state['progress']), (True, 2, [2, 2]))
+        self.assertEqual(state['message'], 'Added 2 new games.')
+
+    def test_failure_reports_last_line_and_server_survives(self):
+        f = Fetcher('league.db', lambda: 1, child('import sys; sys.exit("API key rejected (401/403).")'))
+        f.start()
+        state = finish(f)
+        self.assertEqual((state['ok'], state['added'], state['message']), (False, 0, 'API key rejected (401/403).'))
+
+    def test_one_run_at_a_time(self):
+        f = Fetcher('league.db', lambda: 0, child('import time; time.sleep(0.5)'))
+        first = f.start()
+        self.assertEqual(f.start()['started_at'], first['started_at'])
+        finish(f)
+
+    def test_messages(self):
+        self.assertEqual(fetch_message(0, [], 0), 'No new games.')
+        self.assertEqual(fetch_message(0, [], 1), 'Added 1 new game.')
+        self.assertEqual(fetch_message(0, [], None), 'Fetch finished.')
+        self.assertIn('pip install requests', fetch_message(1, ["ModuleNotFoundError: No module named 'requests'"], 0))
+
+
+class FetchApiTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db, self.notes = [Path(self.tmp.name)/name for name in ('league.db', 'reviews.db')]
+        schema_db(self.db, [(("A", "Ahri", True), dict(start=1))])
+        self.fetcher = Fetcher(self.db, lambda: 0, child('print("done")'))
+        self.server, self.thread, self.base = serve(ReviewStore(self.db, self.notes), FakeRecorder(), self.fetcher)
+
+    def tearDown(self):
+        finish(self.fetcher)
+        self.server.shutdown(); self.server.server_close(); self.thread.join()
+        self.tmp.cleanup()
+
+    def post(self, origin):
+        req = Request(self.base + '/api/fetch', data=b'{}',
+                      headers={'Content-Type': 'application/json', 'Origin': origin})
+        with urlopen(req) as r:
+            return json.load(r)
+
+    def test_start_and_poll(self):
+        with urlopen(self.base + '/api/fetch') as r:
+            self.assertFalse(json.load(r)['running'])
+        self.assertTrue(self.post(self.base)['running'])
+        self.assertTrue(finish(self.fetcher)['ok'])
+
+    def test_foreign_origin_cannot_start(self):
+        with self.assertRaises(HTTPError) as error:
+            self.post('https://example.com')
+        self.assertEqual(error.exception.code, 403)
+        self.assertIsNone(self.fetcher.status()['started_at'])
 
 
 class StaticFileTests(unittest.TestCase):

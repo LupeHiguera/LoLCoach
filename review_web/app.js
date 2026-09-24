@@ -93,8 +93,7 @@ function renderBanner() {
   // "games reviewed" needs a reviewed flag per match; until the API sends one, count imports.
   const hasFlag = state.matches.some(m => 'reviewed' in m);
   const count = hasFlag ? state.matches.filter(m => m.reviewed).length : state.matches.length;
-  $('led-label').textContent = hasFlag ? 'games reviewed' : 'games imported';
-  $('led').textContent = String(count).padStart(4, '0');
+  $('games-stat').innerHTML = `<strong>${count}</strong> ${hasFlag ? 'games reviewed' : 'games imported'}`;
   const latest = state.matches.reduce((a, m) => Math.max(a, m.game_start_ms || 0), 0);
   $('last-updated').textContent = `Latest game: ${latest ? isoDay(latest) : '—'}`;
 }
@@ -117,7 +116,7 @@ function renderMatches() {
       <td class="num">${clock(m.duration_s * 1000)}</td>
     </tr>`).join('') || emptyRow(4, state.matches.length
       ? 'No games match these filters. Change Queue or Result.'
-      : 'No Ahri/Zoe mid games with a timeline yet. Run <code>python fetch_matches.py --count 20</code>.');
+      : 'No Ahri/Zoe mid games with a timeline yet. Press Fetch new, or run <code>python fetch_matches.py --count 20</code>.');
 }
 
 $('matches').onclick = e => { const row = e.target.closest('tr[data-id]'); if (row) openInReview(row.dataset.id); };
@@ -558,7 +557,7 @@ function showCiLevel(method) {
   return level;
 }
 
-/** Dot = estimate, band = 95% range, brass tick = reference (all games). Coordinates in % so it fits any cell. */
+/** Dot = estimate, band = 95% range, grey tick = reference (all games). Coordinates in % so it fits any cell. */
 function ciBar(rate, ci, lo, hi, ref) {
   const p = v => `${((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * 100).toFixed(2)}%`;
   let s = '<svg class="ci" aria-hidden="true"><line class="track" x1="0" x2="100%" y1="8" y2="8"/>';
@@ -597,7 +596,7 @@ function renderCharm() {
   const vals = rows.flatMap(([, r]) => r ? [r.rate, ...(r.ci || [])] : []).filter(Number.isFinite);
   const lo = Math.max(0, Math.floor((Math.min(...vals) - .05) * 10) / 10);
   const hi = Math.min(1, Math.ceil((Math.max(...vals) + .05) * 10) / 10);
-  $('charm-scale').innerHTML = `<span>${pct(lo)}</span><span>brass tick = all games</span><span>${pct(hi)}</span>`;
+  $('charm-scale').innerHTML = `<span>${pct(lo)}</span><span>grey tick = all games</span><span>${pct(hi)}</span>`;
   $('charm-summary').innerHTML = rows.map(([label, r]) => r
     ? `<tr><th scope="row">${label}</th><td class="num">${r.n}</td><td class="num charm-rate">${pct(r.rate)}</td>
         <td class="num">${r.ci ? range(r.ci) : '<span class="cell-note">none, n &lt; 2</span>'}</td>
@@ -641,7 +640,7 @@ function renderCharmTrend(games, all) {
   if (labelAll != null && labelRoll != null && Math.abs(labelAll - labelRoll) < 28) {
     if (labelRoll <= labelAll) labelRoll = labelAll - 28; else labelRoll = labelAll + 28;
   }
-  if (labelAll != null) svg += `<text class="label-brass" x="${W - R + 8}" y="${labelAll + 4}">All games ${pct(all.rate)}</text><text class="axis" x="${W - R + 8}" y="${labelAll + 18}">${all.ci ? range(all.ci) : 'no range'} · n=${all.n}</text>`;
+  if (labelAll != null) svg += `<text class="label-ref" x="${W - R + 8}" y="${labelAll + 4}">All games ${pct(all.rate)}</text><text class="axis" x="${W - R + 8}" y="${labelAll + 18}">${all.ci ? range(all.ci) : 'no range'} · n=${all.n}</text>`;
   if (labelRoll != null) svg += `<text class="label-charm" x="${W - R + 8}" y="${labelRoll + 4}">Last ${ROLL} games ${pct(roll[roll.length - 1][1])}</text>`;
   box.innerHTML = svg + '</svg>';
 }
@@ -793,11 +792,57 @@ $('rec-armed').onchange = async () => {
 $('rec-last').onclick = e => { const b = e.target.closest('[data-open]'); if (b) openInReview(b.dataset.open); };
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshRecorder(); else clearTimeout(recTimer); });
 
+// ---------------------------------------------------------------- fetch new games (runs fetch_matches.py)
+const FETCH_POLL_MS = 1500;
+let fetchTimer = null;
+
+function renderFetch(f) {
+  const b = $('fetch-games');
+  b.disabled = READ_ONLY || f.running;
+  b.textContent = f.running ? 'Fetching…' : 'Fetch new';
+  if (READ_ONLY) b.textContent += ' (demo)';
+}
+
+/** Reload the games list after a fetch, keeping the open match. */
+async function reloadMatches() {
+  state.matches = await api('/api/matches');
+  renderMatches(); renderBanner();
+  if (!state.detail && state.matches[0]) await loadMatch(state.matches[0].match_id);
+}
+
+async function pollFetch(announce) {
+  clearTimeout(fetchTimer);
+  let f;
+  try { f = await api('/api/fetch'); } catch (e) {
+    if (announce) status(e.status === 404 ? 'This review_app.py cannot fetch games. Update it and restart it.' : `Fetch status unavailable: ${e.message}`, 'error');
+    return;
+  }
+  renderFetch(f);
+  if (f.running) {
+    status(`Fetching games: ${f.message}`, 'note');
+    fetchTimer = setTimeout(() => pollFetch(true), FETCH_POLL_MS);
+  } else if (announce && f.finished_at) {
+    status(`${f.message} ${hhmm()}`, f.ok ? 'ok' : 'error');
+    if (f.ok) try { await reloadMatches(); } catch (e) { status(`Fetched, but the games list did not reload: ${e.message}`, 'error'); }
+  }
+}
+
+$('fetch-games').onclick = async () => {
+  $('fetch-games').disabled = true;
+  try {
+    renderFetch(await api('/api/fetch', {}));
+    pollFetch(true);
+  } catch (e) {
+    status(e.status === 404 ? 'This review_app.py cannot fetch games. Update it and restart it.' : `Fetch not started: ${e.message}`, 'error');
+    renderFetch({running: false});
+  }
+};
+
 // ---------------------------------------------------------------- read-only demo
 /** Disable every save in the static demo and say so on the control (PLAN.md, "Demo on AWS"). */
 function markReadOnly() {
   if (!READ_ONLY) { $('source').textContent = 'local API'; return; }
-  for (const id of ['save-review', 'save-focus', 'use-focus', 'edit-focus']) {
+  for (const id of ['save-review', 'save-focus', 'use-focus', 'edit-focus', 'fetch-games']) {
     const b = $(id);
     b.disabled = true; b.textContent += ' (demo)'; b.title = 'Read-only demo: nothing is saved.';
   }
@@ -861,7 +906,7 @@ window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDir
     renderMatches();
     const first = filteredMatches()[0] || matches[0];
     if (first) await loadMatch(first.match_id);
-    else showReviewEmpty('<strong>No games to review.</strong> Import Ahri/Zoe mid games with <code>python fetch_matches.py --count 20</code>, then reload.');
+    else showReviewEmpty('<strong>No games to review.</strong> Press Fetch new in Games, or run <code>python fetch_matches.py --count 20</code> and reload.');
     if (!first) status('No games imported', 'note');
   } catch (e) {
     $('matches').innerHTML = emptyRow(4, 'Games could not be loaded.');
@@ -869,4 +914,6 @@ window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDir
     status(e.message, 'error');
   }
   refreshRecorder();  // after matches, so "last" can name the linked game
+  if (READ_ONLY) renderFetch({running: false});
+  else pollFetch(false);  // picks up a fetch still running from before a reload
 })();

@@ -13,7 +13,7 @@
 <header class="banner">
   <a class="logotype" href="./">LoLCoach</a>
   <p class="ticker" id="ticker"><span class="ticker-track" id="ticker-track">Loading recent results…</span></p>
-  <div class="led"><span id="led-label">games imported</span><span class="led-digits" id="led">0000</span></div>
+  <p class="readout-plate" id="games-stat">Loading games…</p>
 </header>
 
 <nav class="tabs" aria-label="Views">
@@ -51,7 +51,7 @@
   </section>
 
   <section class="box" aria-labelledby="games-h">
-    <div class="titlebar"><h2 id="games-h">Games</h2><span class="meta" id="match-count"></span></div>
+    <div class="titlebar"><h2 id="games-h">Games</h2><span class="meta" id="match-count"></span><button class="btn" id="fetch-games" type="button" title="Run fetch_matches.py for your latest Ahri/Zoe games (needs RIOT_API_KEY in .env)">Fetch new</button></div>
     <div class="filters">
       <label for="champion">Champion</label><select id="champion"><option value="">Ahri + Zoe</option><option>Ahri</option><option>Zoe</option></select>
       <label for="queue">Queue</label><select id="queue"><option value="420">Ranked solo/duo</option><option value="440">Ranked flex</option><option value="400">Normal draft</option><option value="">All queues</option></select>
@@ -238,11 +238,11 @@
 </div>
 
 <footer class="footer">
-  <div class="badges" aria-label="Project badges">
-    <span class="badge88" title="Data, video and notes stay on this machine"><b>Local</b>only</span>
-    <span class="badge88" title="Nothing is shown while a game is running"><b>No</b>overlays</span>
-    <span class="badge88" title="Standard-library Python server"><b>Python</b>stdlib</span>
-    <span class="badge88" title="Not affiliated with Riot Games"><b>Not</b>Riot</span>
+  <div class="plates" aria-label="Project facts">
+    <span class="plate" title="Data, video and notes stay on this machine">Local only</span>
+    <span class="plate" title="Nothing is shown while a game is running">No overlays</span>
+    <span class="plate" title="Standard-library Python server">Python stdlib</span>
+    <span class="plate" title="Not affiliated with Riot Games">Not Riot</span>
   </div>
   <span id="last-updated">Latest game: —</span>
   <p class="notice">LoLCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>

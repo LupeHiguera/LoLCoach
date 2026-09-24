@@ -89,5 +89,6 @@ and title-bar gradients, which are period-specific and specified).
 17. *Default-looking charts*: no annotations, no direct labels, axes with no meaning.
 18. *Low density*: large padding, few items per screen, in a tool used for an hour at a time.
 19. *Undesigned states*: missing loading, empty, error and partial-data states (no timeline, no video).
+20. *Fake hardware*: pixel-font LED counters, zero-padded "hit counters", blinking status lights, dials and window controls that do nothing.
 
 Before finishing UI work, check your change against this list and the `UI.md` checklist.
