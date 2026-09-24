@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# LoLCoach local data (contains other players' identifiers) and IDE state
+*.db
+data/
+.vs/
+.idea/
+.claude/
