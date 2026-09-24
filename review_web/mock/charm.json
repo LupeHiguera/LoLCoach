@@ -1,0 +1,352 @@
+{
+ "games": [
+  {
+   "match_id": "demo-21",
+   "start": 1789956000000,
+   "opponent": "Akali",
+   "win": false,
+   "casts": 45,
+   "hits": 21,
+   "rate": 0.4667,
+   "per_min": 1.38
+  },
+  {
+   "match_id": "demo-20",
+   "start": 1789804800000,
+   "opponent": "Fizz",
+   "win": false,
+   "casts": 63,
+   "hits": 31,
+   "rate": 0.4921,
+   "per_min": 1.8
+  },
+  {
+   "match_id": "demo-19",
+   "start": 1789639200000,
+   "opponent": "Talon",
+   "win": true,
+   "casts": 17,
+   "hits": 10,
+   "rate": 0.5882,
+   "per_min": 1.1
+  },
+  {
+   "match_id": "demo-18",
+   "start": 1789441200000,
+   "opponent": "Briar",
+   "win": false,
+   "casts": 44,
+   "hits": 25,
+   "rate": 0.5682,
+   "per_min": 1.34
+  },
+  {
+   "match_id": "demo-17",
+   "start": 1789275600000,
+   "opponent": "Zoe",
+   "win": false,
+   "casts": 56,
+   "hits": 26,
+   "rate": 0.4643,
+   "per_min": 1.23
+  },
+  {
+   "match_id": "demo-16",
+   "start": 1789095600000,
+   "opponent": "Orianna",
+   "win": false,
+   "casts": 35,
+   "hits": 20,
+   "rate": 0.5714,
+   "per_min": 1.27
+  },
+  {
+   "match_id": "demo-15",
+   "start": 1788940800000,
+   "opponent": "Ekko",
+   "win": true,
+   "casts": 53,
+   "hits": 28,
+   "rate": 0.5283,
+   "per_min": 1.53
+  },
+  {
+   "match_id": "demo-14",
+   "start": 1788768000000,
+   "opponent": "Heimerdinger",
+   "win": false,
+   "casts": 35,
+   "hits": 8,
+   "rate": 0.2286,
+   "per_min": 1.13
+  },
+  {
+   "match_id": "demo-13",
+   "start": 1788577200000,
+   "opponent": "Malzahar",
+   "win": true,
+   "casts": 29,
+   "hits": 17,
+   "rate": 0.5862,
+   "per_min": 1.06
+  },
+  {
+   "match_id": "demo-12",
+   "start": 1788400800000,
+   "opponent": "Mel",
+   "win": true,
+   "casts": 63,
+   "hits": 35,
+   "rate": 0.5556,
+   "per_min": 1.47
+  },
+  {
+   "match_id": "demo-11",
+   "start": 1788238800000,
+   "opponent": "Akshan",
+   "win": true,
+   "casts": 56,
+   "hits": 33,
+   "rate": 0.5893,
+   "per_min": 1.54
+  },
+  {
+   "match_id": "demo-10",
+   "start": 1788084000000,
+   "opponent": "Yasuo",
+   "win": false,
+   "casts": 41,
+   "hits": 19,
+   "rate": 0.4634,
+   "per_min": 1.12
+  },
+  {
+   "match_id": "demo-9",
+   "start": 1787882400000,
+   "opponent": "Yone",
+   "win": false,
+   "casts": 17,
+   "hits": 8,
+   "rate": 0.4706,
+   "per_min": 1.09
+  },
+  {
+   "match_id": "demo-8",
+   "start": 1787727600000,
+   "opponent": "Zed",
+   "win": false,
+   "casts": 17,
+   "hits": 9,
+   "rate": 0.5294,
+   "per_min": 1.12
+  },
+  {
+   "match_id": "demo-7",
+   "start": 1787540400000,
+   "opponent": "Ekko",
+   "win": true,
+   "casts": 29,
+   "hits": 16,
+   "rate": 0.5517,
+   "per_min": 1.279
+  },
+  {
+   "match_id": "demo-6",
+   "start": 1787392800000,
+   "opponent": "Yone",
+   "win": false,
+   "casts": 28,
+   "hits": 10,
+   "rate": 0.3571,
+   "per_min": 1.01
+  },
+  {
+   "match_id": "demo-5",
+   "start": 1787194800000,
+   "opponent": "Annie",
+   "win": true,
+   "casts": 30,
+   "hits": 17,
+   "rate": 0.5667,
+   "per_min": 1.37
+  },
+  {
+   "match_id": "demo-4",
+   "start": 1787018400000,
+   "opponent": "Yasuo",
+   "win": false,
+   "casts": 64,
+   "hits": 32,
+   "rate": 0.5,
+   "per_min": 1.36
+  },
+  {
+   "match_id": "demo-3",
+   "start": 1786867200000,
+   "opponent": "Yasuo",
+   "win": true,
+   "casts": 25,
+   "hits": 17,
+   "rate": 0.68,
+   "per_min": 1.08
+  },
+  {
+   "match_id": "demo-2",
+   "start": 1786680000000,
+   "opponent": "Ekko",
+   "win": true,
+   "casts": 45,
+   "hits": 21,
+   "rate": 0.4667,
+   "per_min": 1.21
+  },
+  {
+   "match_id": "demo-1",
+   "start": 1786518000000,
+   "opponent": "Syndra",
+   "win": false,
+   "casts": 32,
+   "hits": 13,
+   "rate": 0.4062,
+   "per_min": 1.1
+  }
+ ],
+ "summary": {
+  "all": {
+   "n": 21,
+   "rate": 0.5049,
+   "ci": [
+    0.4737,
+    0.533
+   ]
+  },
+  "wins": {
+   "n": 9,
+   "rate": 0.5591,
+   "ci": [
+    0.5331,
+    0.5879
+   ]
+  },
+  "losses": {
+   "n": 12,
+   "rate": 0.4654,
+   "ci": [
+    0.4221,
+    0.5009
+   ]
+  }
+ },
+ "by_opponent": [
+  {
+   "opponent": "Ekko",
+   "n": 3,
+   "rate": 0.5118,
+   "ci": [
+    0.4874,
+    0.5405
+   ]
+  },
+  {
+   "opponent": "Yasuo",
+   "n": 3,
+   "rate": 0.5231,
+   "ci": [
+    0.4795,
+    0.5824
+   ]
+  },
+  {
+   "opponent": "Yone",
+   "n": 2,
+   "rate": 0.4,
+   "ci": [
+    0.3571,
+    0.4706
+   ]
+  },
+  {
+   "opponent": "Akali",
+   "n": 1,
+   "rate": 0.4667,
+   "ci": null
+  },
+  {
+   "opponent": "Akshan",
+   "n": 1,
+   "rate": 0.5893,
+   "ci": null
+  },
+  {
+   "opponent": "Annie",
+   "n": 1,
+   "rate": 0.5667,
+   "ci": null
+  },
+  {
+   "opponent": "Briar",
+   "n": 1,
+   "rate": 0.5682,
+   "ci": null
+  },
+  {
+   "opponent": "Fizz",
+   "n": 1,
+   "rate": 0.4921,
+   "ci": null
+  },
+  {
+   "opponent": "Heimerdinger",
+   "n": 1,
+   "rate": 0.2286,
+   "ci": null
+  },
+  {
+   "opponent": "Malzahar",
+   "n": 1,
+   "rate": 0.5862,
+   "ci": null
+  },
+  {
+   "opponent": "Mel",
+   "n": 1,
+   "rate": 0.5556,
+   "ci": null
+  },
+  {
+   "opponent": "Orianna",
+   "n": 1,
+   "rate": 0.5714,
+   "ci": null
+  },
+  {
+   "opponent": "Syndra",
+   "n": 1,
+   "rate": 0.4062,
+   "ci": null
+  },
+  {
+   "opponent": "Talon",
+   "n": 1,
+   "rate": 0.5882,
+   "ci": null
+  },
+  {
+   "opponent": "Zed",
+   "n": 1,
+   "rate": 0.5294,
+   "ci": null
+  },
+  {
+   "opponent": "Zoe",
+   "n": 1,
+   "rate": 0.4643,
+   "ci": null
+  }
+ ],
+ "method": {
+  "ci_level": 0.9,
+  "iterations": 4000,
+  "resample": "game"
+ }
+}

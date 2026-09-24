@@ -1,0 +1,5 @@
+{
+ "goal": "0 deaths before 10:00",
+ "why_text": "4 of my last 6 losses had a death before 10:00 (timeline only).",
+ "check_text": "Count games with no death before 10:00 over the next 3."
+}

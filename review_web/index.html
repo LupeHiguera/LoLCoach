@@ -1,22 +1,235 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Next • League review</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LoLCoach · post-game review</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
 <body>
-<header><a class="brand" href="/">next<span> / LEAGUE REVIEW</span></a><span class="local">● &nbsp; Personal · Post-game</span></header>
-<main>
-<section class="intro"><div><p class="eyebrow">LESS GUESSING. ONE THING TO PRACTICE.</p><h1>Find your next good habit.</h1><p class="muted">Review a moment. Understand the decision. Take one focus into your next game.</p></div><span class="step">01 / REVIEW → 02 / PRACTICE</span></section>
-<section class="focus panel"><div><p class="eyebrow">TODAY’S FOCUS</p><h2 id="focus-title">Choose one thing you can control.</h2><p id="focus-why" class="muted">Start with a reviewed moment below, then turn it into a small practice goal.</p><p id="focus-check"></p></div><button id="edit-focus" class="primary">Set a focus ↗</button>
-<form id="focus-form" hidden><label>For my next few games, I will…<input id="goal" maxlength="1000" required placeholder="Check my wave before leaving mid"></label><label>Evidence or reason for this focus<textarea id="why" maxlength="1000" placeholder="What did your review reveal?"></textarea></label><label>After playing, I’ll check…<input id="check" maxlength="1000" placeholder="One departure where I checked, and one I was unsure about"></label><div class="actions"><button class="primary" type="submit">Save focus</button><button type="button" id="cancel-focus">Cancel</button></div></form></section>
-<div class="workspace">
-<aside class="panel library"><div class="section-title"><h2>Your games</h2><span id="match-count" class="badge">0</span></div><div class="filters"><label>Champion<select id="champion"><option value="">Ahri + Zoe</option><option>Ahri</option><option>Zoe</option></select></label><label>Queue<select id="queue"><option value="420">Ranked solo/duo</option><option value="440">Ranked flex</option><option value="400">Normal draft</option><option value="">All queues</option></select></label><label>Result<select id="result"><option value="">Wins + losses</option><option value="1">Wins</option><option value="0">Losses</option></select></label></div><div id="matches" class="match-list"></div></aside>
-<section id="detail" class="detail" hidden>
-<article class="panel chart-panel"><div class="section-title"><div><p id="match-meta" class="eyebrow"></p><h2 id="match-title"></h2></div><span id="match-result" class="badge"></span></div><div class="chart-toolbar"><div class="tabs" role="group" aria-label="Timeline metric"><button data-metric="gold_diff" class="active">Gold</button><button data-metric="xp_diff">XP</button><button data-metric="cs_diff">Lane CS</button></div><span class="muted small">You − assigned lane opponent · × your deaths</span></div><div id="chart"></div><p id="chart-readout" class="small muted">Select a snapshot to bookmark it.</p><p class="small muted">Lines connect sampled values; they do not show every action. A deficit is a review prompt, not a diagnosis.</p></article>
-<article class="panel"><div class="section-title"><div><p class="eyebrow">LOOK CLOSER</p><h2>Moments worth reviewing</h2></div><span id="moment-count" class="badge"></span></div><p class="muted small">Start with the first death or a quiet stretch of farming. You decide what it means.</p><div id="moments" class="moments"></div></article>
-<article class="panel review-panel"><p class="eyebrow">YOUR REVIEW</p><h2 id="review-title">Choose a moment above.</h2><p id="review-description" class="muted"></p>
-<details class="video-tools"><summary>Add a local recording (optional)</summary><p class="small muted">Choose footage for this match. It stays in your browser. The game clock at 0:00 should match the offset below.</p><label>Recording<input id="video-file" type="file" accept="video/*"></label><label>Video time at game 0:00 (seconds)<input id="video-offset" type="number" step="1" value="0"></label><video id="video" controls hidden></video><button id="seek-video" type="button">Jump to review start</button><p id="video-status" class="small muted"></p></details>
-<form id="review-form" hidden><div class="form-row"><label>Possible reason<select id="reason"><option value="uncertain">Not sure yet</option><option value="dead">Dead</option><option value="recalling">Recalling / shopping</option><option value="fighting">Fighting</option><option value="roaming">Roaming / rotating</option><option value="pressured">Pressured out</option><option value="other">Other</option></select></label><label>Evidence used<select id="evidence"><option value="stats_only">Timeline only — cause unconfirmed</option><option value="recording">I reviewed the recording</option><option value="memory">My recollection</option></select></label></div><label>What did you observe, and what were you trying to do?<textarea id="observation" maxlength="3000" required placeholder="Separate what you can see from what you suspect."></textarea></label><label>What could you recognize or try next time?<textarea id="alternative" maxlength="3000" placeholder="A concrete cue or action, using information available at the time."></textarea></label><div class="actions"><button class="primary" type="submit">Save review</button><button id="use-focus" type="button">Turn into today’s focus ↗</button><span id="saved" class="small muted"></span></div></form></article>
-<article class="panel"><div class="section-title"><h2>Saved bookmarks</h2><span id="review-count" class="badge">0</span></div><div id="reviews"></div></article>
-</section><section id="empty" class="panel empty"><h2>A small review goes a long way.</h2><p class="muted">Choose a game to begin. If this queue is empty, change the filters or import more matches.</p></section>
-</div><footer>Independent personal project. Not endorsed by Riot Games. League of Legends and Riot Games are trademarks of Riot Games, Inc.</footer>
-</main><div id="notice" role="status" hidden></div>
-</body></html>
+<div class="frame">
+
+<header class="banner">
+  <a class="logotype" href="./">LoLCoach</a>
+  <p class="ticker" id="ticker"><span class="ticker-track" id="ticker-track">Loading recent results…</span></p>
+  <div class="led"><span id="led-label">games imported</span><span class="led-digits" id="led">0000</span></div>
+</header>
+
+<nav class="tabs" aria-label="Views">
+  <a href="#review" data-view="review">Review</a><a href="#charm" data-view="charm">Charm</a><a href="#profile" data-view="profile">Profile</a>
+</nav>
+
+<div class="layout">
+<aside class="sidebar" aria-label="Focus and games">
+
+  <section class="box" aria-labelledby="focus-h">
+    <div class="titlebar"><h2 id="focus-h">Today's focus</h2><button class="btn" id="edit-focus" type="button">Edit</button></div>
+    <div class="box-body">
+      <p id="focus-goal" class="focus-goal"></p>
+      <p id="focus-why" class="dim"></p>
+      <p id="focus-check" class="focus-check"></p>
+      <form id="focus-form" hidden>
+        <div class="stack"><label for="goal">Goal for the next games</label><input id="goal" maxlength="1000" required placeholder="0 deaths before 10:00"></div>
+        <div class="stack"><label for="why">Evidence</label><textarea id="why" maxlength="1000" placeholder="4 of the last 6 losses had a death before 10:00"></textarea></div>
+        <div class="stack"><label for="check">Check after playing</label><input id="check" maxlength="1000" placeholder="Games with no death before 10:00, out of 3"></div>
+        <div class="actions"><button class="btn primary" type="submit" id="save-focus">Save focus</button><button class="btn" type="button" id="cancel-focus">Cancel</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="box" aria-labelledby="recorder-h">
+    <div class="titlebar">
+      <h2 id="recorder-h">Recorder</h2>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="About auto-record" aria-describedby="tip-recorder">ⓘ</button><span class="tip" role="tooltip" id="tip-recorder">When armed, review_app.py asks OBS (via obs-websocket) to record while Riot's Live Client Data API reports a game, then links the file to the match after the next fetch. Nothing is shown in game, and no input is read. Off whenever the app starts.</span></span>
+    </div>
+    <div class="box-body">
+      <label class="check"><input type="checkbox" id="rec-armed" disabled> Auto-record with OBS</label>
+      <p class="rec-line" id="rec-line" aria-live="polite">Checking OBS…</p>
+      <p class="rec-line dim" id="rec-last"></p>
+    </div>
+  </section>
+
+  <section class="box" aria-labelledby="games-h">
+    <div class="titlebar"><h2 id="games-h">Games</h2><span class="meta" id="match-count"></span></div>
+    <div class="filters">
+      <label for="champion">Champion</label><select id="champion"><option value="">Ahri + Zoe</option><option>Ahri</option><option>Zoe</option></select>
+      <label for="queue">Queue</label><select id="queue"><option value="420">Ranked solo/duo</option><option value="440">Ranked flex</option><option value="400">Normal draft</option><option value="">All queues</option></select>
+      <label for="result">Result</label><select id="result"><option value="">Wins + losses</option><option value="1">Wins</option><option value="0">Losses</option></select>
+    </div>
+    <div class="scroll games-scroll">
+      <table class="stat games">
+        <caption class="sr-only">Imported games; select a row to review it</caption>
+        <thead><tr><th scope="col">Date</th><th scope="col">Matchup</th><th scope="col">Res</th><th scope="col" class="num">Len</th></tr></thead>
+        <tbody id="matches"></tbody>
+      </table>
+    </div>
+  </section>
+
+</aside>
+
+<main class="content" id="main">
+<section class="view content" id="view-review" aria-labelledby="view-review-h">
+  <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
+  <h1 class="sr-only" id="view-review-h">Review</h1>
+
+  <section class="box" id="review-empty" aria-live="polite"><div class="state" id="review-empty-text">Loading games…</div></section>
+
+  <div id="detail" class="content" hidden>
+    <section class="box major" aria-labelledby="match-title">
+      <div class="titlebar">
+        <h2 id="match-title"></h2>
+        <span class="meta" id="match-result"></span>
+      </div>
+      <div class="box-body">
+        <p class="match-meta" id="match-meta"></p>
+        <div class="chart-tools">
+          <div class="segmented" role="group" aria-label="Timeline metric">
+            <button class="btn" type="button" data-metric="gold_diff" aria-pressed="true">Gold</button><button class="btn" type="button" data-metric="xp_diff" aria-pressed="false">XP</button><button class="btn" type="button" data-metric="cs_diff" aria-pressed="false">Lane CS</button>
+          </div>
+          <span class="dim">You − assigned lane opponent, per-minute snapshots · ✕ your deaths</span>
+          <span class="tip-wrap"><button class="info" type="button" aria-label="About the timeline" aria-describedby="tip-chart">ⓘ</button><span class="tip" role="tooltip" id="tip-chart">Differences use matching snapshot timestamps for the assigned lane opponent. Lines connect sampled values and do not show every action; gaps mean missing snapshots. Role swaps and later team play need interpretation. A deficit is a review prompt, not a diagnosis.</span></span>
+        </div>
+        <div class="chart" id="chart"></div>
+        <p class="readout" id="chart-readout"></p>
+      </div>
+    </section>
+
+    <section class="box" aria-labelledby="moments-h">
+      <div class="titlebar">
+        <h2 id="moments-h">Moments</h2>
+        <span class="meta" id="moment-count"></span>
+        <span class="meta">J / K: previous / next</span>
+        <span class="tip-wrap"><button class="info" type="button" aria-label="How moments are chosen" aria-describedby="tip-moments">ⓘ</button><span class="tip" role="tooltip" id="tip-moments">Death: an event timestamp; the minute before it is context to inspect. Gold deficit: the first sampled snapshot 300+ gold behind the lane opponent. No lane CS: no increase for at least two minutes after 2:00; jungle CS is excluded and missing snapshots break a gap. None of these prove a mistake or a cause.</span></span>
+      </div>
+      <div class="scroll moments-scroll">
+        <table class="stat">
+          <caption class="sr-only">Review prompts for this game; select a row to review it</caption>
+          <thead><tr><th scope="col" class="num">Time</th><th scope="col">Moment</th><th scope="col">Basis</th><th scope="col">Review</th></tr></thead>
+          <tbody id="moments"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="box" aria-labelledby="review-h">
+      <div class="titlebar"><h2 id="review-h">Review</h2><span class="meta" id="saved"></span></div>
+      <div class="box-body review-grid">
+        <div>
+          <div class="state" id="review-none">No moment selected. Pick a row in Moments, or click a point on the chart.</div>
+          <form id="review-form" hidden>
+            <fieldset>
+              <legend id="review-title"></legend>
+              <p class="prompt" id="review-description"></p>
+              <div class="fields">
+                <label for="reason">Possible reason</label>
+                <select id="reason"><option value="uncertain">Not sure yet</option><option value="dead">Dead</option><option value="recalling">Recalling / shopping</option><option value="fighting">Fighting</option><option value="roaming">Roaming / rotating</option><option value="pressured">Pressured out</option><option value="other">Other</option></select>
+                <label for="evidence">Evidence used</label>
+                <select id="evidence"><option value="stats_only">Timeline only (cause unconfirmed)</option><option value="recording">Recording reviewed</option><option value="memory">Recollection</option></select>
+                <label for="observation">Observation</label>
+                <textarea id="observation" maxlength="3000" required placeholder="What you saw, then what you suspect"></textarea>
+                <label for="alternative">Next time</label>
+                <textarea id="alternative" maxlength="3000" placeholder="A cue or action available at the time"></textarea>
+              </div>
+              <div class="actions"><button class="btn primary" type="submit" id="save-review">Save review</button><button class="btn" id="use-focus" type="button">Use as focus</button></div>
+            </fieldset>
+          </form>
+        </div>
+        <fieldset class="recording">
+          <legend>Recording</legend>
+          <p class="dim" id="recording-note">No recording linked. Choose a local file; it stays in this browser.</p>
+          <div class="fields">
+            <label for="video-file">File</label><input id="video-file" type="file" accept="video/*">
+            <label for="video-offset">Video time at game 0:00 (s)</label><input id="video-offset" type="number" step="0.1" value="0">
+          </div>
+          <div class="actions"><button class="btn" id="seek-video" type="button">Jump to review start</button><span class="dim">Space: play / pause</span></div>
+          <video id="video" controls hidden></video>
+          <p class="dim" id="video-status"></p>
+        </fieldset>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="view content" id="view-charm" aria-labelledby="view-charm-h" hidden>
+  <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
+  <h1 class="sr-only" id="view-charm-h">Charm</h1>
+  <section class="box" id="charm-missing" hidden><div class="state" id="charm-missing-text"></div></section>
+
+  <section class="box major" id="charm-main" aria-labelledby="charm-h">
+    <div class="titlebar">
+      <h2 id="charm-h">Charm est. · Ahri</h2>
+      <span class="meta" id="charm-n"></span>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="How Charm est. is calculated" aria-describedby="tip-charm">ⓘ</button><span class="tip" role="tooltip" id="tip-charm">Charm est. = enemy champion immobilizations ÷ E casts, from Riot's end-of-game stats, pooled across games (long games weigh more). Charm is Ahri's only crowd control, so this approximates a hit rate; it is not a per-cast log and has not been checked against video. Ranges are <span data-ci-level>bootstrap</span> intervals that resample whole games. Games with fewer than 20 casts are drawn hollow because one game's rate is noisy. A win/loss gap does not show cause.</span></span>
+    </div>
+    <div class="box-body">
+      <table class="stat ci-table">
+        <caption class="sr-only">Charm estimate by result, with bootstrap intervals</caption>
+        <thead><tr><th scope="col">Games</th><th scope="col" class="num">n</th><th scope="col" class="num">Charm est.</th><th scope="col" class="num" data-ci-label>Range</th><th scope="col" class="ci-col"><span class="ci-scale" id="charm-scale"></span></th></tr></thead>
+        <tbody id="charm-summary"></tbody>
+      </table>
+      <div class="chart charm-chart" id="charm-trend"></div>
+    </div>
+  </section>
+
+  <div class="split">
+    <section class="box" aria-labelledby="charm-games-h">
+      <div class="titlebar"><h2 id="charm-games-h">Games</h2><span class="meta" id="charm-games-n"></span></div>
+      <div class="scroll charm-scroll">
+        <table class="stat">
+          <caption class="sr-only">Charm estimate per Ahri game; column headers sort</caption>
+          <thead id="charm-games-head"><tr><th scope="col" data-sort="start" class="num">Date</th><th scope="col" data-sort="opponent" data-dir="asc">Opponent</th><th scope="col" data-sort="win">Res</th><th scope="col" data-sort="casts" class="num">Casts</th><th scope="col" data-sort="hits" class="num">Hits</th><th scope="col" data-sort="rate" class="num">Charm est.</th><th scope="col" data-sort="per_min" class="num">E/min</th><th scope="col">Review</th></tr></thead>
+          <tbody id="charm-games"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="box" aria-labelledby="charm-opp-h">
+      <div class="titlebar"><h2 id="charm-opp-h">By opponent</h2><span class="meta" id="charm-opp-n"></span></div>
+      <div class="scroll charm-scroll">
+        <table class="stat">
+          <caption class="sr-only">Charm estimate per lane opponent; column headers sort</caption>
+          <thead id="charm-opp-head"><tr><th scope="col" data-sort="opponent" data-dir="asc">Opponent</th><th scope="col" data-sort="n" class="num">n</th><th scope="col" data-sort="rate" class="num">Est.</th><th scope="col" class="num" data-ci-label>Range</th></tr></thead>
+          <tbody id="charm-opp"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="view content" id="view-profile" aria-labelledby="view-profile-h" hidden>
+  <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
+  <h1 class="sr-only" id="view-profile-h">Profile</h1>
+  <section class="box" id="profile-missing" hidden><div class="state" id="profile-missing-text"></div></section>
+
+  <section class="box major" id="profile-main" aria-labelledby="profile-h">
+    <div class="titlebar">
+      <h2 id="profile-h">Habits per champion</h2>
+      <span class="meta" id="profile-n"></span>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="How the profile is calculated" aria-describedby="tip-profile">ⓘ</button><span class="tip" role="tooltip" id="tip-profile">Per-game means from Riot's end-of-game stats, including games without a timeline. Ranges are <span data-ci-level>bootstrap</span> intervals that resample whole games; with n under 5 they are wide, and with n = 1 there is none. Roles have different norms (Lulu is a support), so compare habits, not raw numbers. Champions with fewer than 3 games are dimmed. Differences between champions are not causes.</span></span>
+    </div>
+    <div class="scroll">
+      <table class="stat profile-table">
+        <caption class="sr-only">End-of-game stats per champion with bootstrap intervals</caption>
+        <thead id="profile-head"></thead>
+        <tbody id="profile-body"></tbody>
+      </table>
+    </div>
+  </section>
+</section>
+</main>
+</div>
+
+<footer class="footer">
+  <div class="badges" aria-label="Project badges">
+    <span class="badge88" title="Data, video and notes stay on this machine"><b>Local</b>only</span>
+    <span class="badge88" title="Nothing is shown while a game is running"><b>No</b>overlays</span>
+    <span class="badge88" title="Standard-library Python server"><b>Python</b>stdlib</span>
+    <span class="badge88" title="Not affiliated with Riot Games"><b>Not</b>Riot</span>
+  </div>
+  <span id="last-updated">Latest game: —</span>
+  <p class="notice">LoLCoach isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</p>
+</footer>
+
+<div class="statusbar"><span id="status" role="status" aria-live="polite">Starting…</span><span id="source">local API</span></div>
+</div>
+</body>
+</html>

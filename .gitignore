@@ -224,4 +224,6 @@ data/
 .idea/
 # export_demo.py output built from real matches; review before publishing
 demo/data/
+# deploy_demo.ps1 output (copies of review_web/)
+demo/
 .claude/
