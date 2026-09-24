@@ -141,13 +141,69 @@
 <section class="view content" id="view-charm" aria-labelledby="view-charm-h" hidden>
   <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
   <h1 class="sr-only" id="view-charm-h">Charm</h1>
-  <section class="box"><div class="state" id="charm-state">Charm view not built yet.</div></section>
+  <section class="box" id="charm-missing" hidden><div class="state" id="charm-missing-text"></div></section>
+
+  <section class="box major" id="charm-main" aria-labelledby="charm-h">
+    <div class="titlebar">
+      <h2 id="charm-h">Charm est. · Ahri</h2>
+      <span class="meta" id="charm-n"></span>
+      <span class="meta src" id="charm-src"></span>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="How Charm est. is calculated" aria-describedby="tip-charm">ⓘ</button><span class="tip" role="tooltip" id="tip-charm">Charm est. = enemy champion immobilizations ÷ E casts, from Riot's end-of-game stats, pooled across games (long games weigh more). Charm is Ahri's only crowd control, so this approximates a hit rate; it is not a per-cast log and has not been checked against video. Ranges are <span data-ci-level>bootstrap</span> intervals that resample whole games. Games with fewer than 20 casts are drawn hollow because one game's rate is noisy. A win/loss gap does not show cause.</span></span>
+    </div>
+    <div class="box-body">
+      <table class="stat ci-table">
+        <caption class="sr-only">Charm estimate by result, with bootstrap intervals</caption>
+        <thead><tr><th scope="col">Games</th><th scope="col" class="num">n</th><th scope="col" class="num">Charm est.</th><th scope="col" class="num" data-ci-label>Range</th><th scope="col" class="ci-col"><span class="ci-scale" id="charm-scale"></span></th></tr></thead>
+        <tbody id="charm-summary"></tbody>
+      </table>
+      <div class="chart charm-chart" id="charm-trend"></div>
+    </div>
+  </section>
+
+  <div class="split">
+    <section class="box" aria-labelledby="charm-games-h">
+      <div class="titlebar"><h2 id="charm-games-h">Games</h2><span class="meta" id="charm-games-n"></span></div>
+      <div class="scroll charm-scroll">
+        <table class="stat">
+          <caption class="sr-only">Charm estimate per Ahri game; column headers sort</caption>
+          <thead id="charm-games-head"><tr><th scope="col" data-sort="start" class="num">Date</th><th scope="col" data-sort="opponent" data-dir="asc">Opponent</th><th scope="col" data-sort="win">Res</th><th scope="col" data-sort="casts" class="num">Casts</th><th scope="col" data-sort="hits" class="num">Hits</th><th scope="col" data-sort="rate" class="num">Charm est.</th><th scope="col" data-sort="per_min" class="num">E/min</th><th scope="col">Review</th></tr></thead>
+          <tbody id="charm-games"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="box" aria-labelledby="charm-opp-h">
+      <div class="titlebar"><h2 id="charm-opp-h">By opponent</h2><span class="meta" id="charm-opp-n"></span></div>
+      <div class="scroll charm-scroll">
+        <table class="stat">
+          <caption class="sr-only">Charm estimate per lane opponent; column headers sort</caption>
+          <thead id="charm-opp-head"><tr><th scope="col" data-sort="opponent" data-dir="asc">Opponent</th><th scope="col" data-sort="n" class="num">n</th><th scope="col" data-sort="rate" class="num">Est.</th><th scope="col" class="num" data-ci-label>Range</th></tr></thead>
+          <tbody id="charm-opp"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </section>
 
 <section class="view content" id="view-profile" aria-labelledby="view-profile-h" hidden>
   <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
   <h1 class="sr-only" id="view-profile-h">Profile</h1>
-  <section class="box"><div class="state" id="profile-state">Profile view not built yet.</div></section>
+  <section class="box" id="profile-missing" hidden><div class="state" id="profile-missing-text"></div></section>
+
+  <section class="box major" id="profile-main" aria-labelledby="profile-h">
+    <div class="titlebar">
+      <h2 id="profile-h">Habits per champion</h2>
+      <span class="meta" id="profile-n"></span>
+      <span class="meta src" id="profile-src"></span>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="How the profile is calculated" aria-describedby="tip-profile">ⓘ</button><span class="tip" role="tooltip" id="tip-profile">Per-game means from Riot's end-of-game stats, including games without a timeline. Ranges are <span data-ci-level>bootstrap</span> intervals that resample whole games; with n under 5 they are wide, and with n = 1 there is none. Roles have different norms (Lulu is a support), so compare habits, not raw numbers. Champions with fewer than 3 games are dimmed. Differences between champions are not causes.</span></span>
+    </div>
+    <div class="scroll">
+      <table class="stat profile-table">
+        <caption class="sr-only">End-of-game stats per champion with bootstrap intervals</caption>
+        <thead id="profile-head"></thead>
+        <tbody id="profile-body"></tbody>
+      </table>
+    </div>
+  </section>
 </section>
 </main>
 </div>

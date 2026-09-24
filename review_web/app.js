@@ -26,6 +26,7 @@ const emptyRow = (cols, html) => `<tr class="empty-row"><td colspan="${cols}">${
 const state = {
   matches: [], detail: null, moment: null, metric: 'gold_diff',
   dirty: false, focusDirty: false, focus: null, videoURL: null, request: 0,
+  view: 'review', loaded: {}, charm: null, profile: null,
 };
 
 // ---------------------------------------------------------------- data
@@ -373,9 +374,286 @@ $('seek-video').onclick = () => {
   $('video-status').textContent = `Video at ${clock(target * 1000)} = game ${clock(state.moment.start_ms)}.`;
 };
 
+const viewLoaders = {};  // view name -> function run each time the view is shown
+
+// ---------------------------------------------------------------- endpoints that may not exist yet
+const params = new URLSearchParams(location.search);
+const FORCE_MOCK = params.has('mock');  // ?mock: use review_web/mock/*.json for charm/profile
+const origins = {};                     // endpoint name -> 'api' | 'mock'
+
+async function getStatic(url) {
+  let r;
+  try { r = await fetch(url); } catch (e) { const err = Error(`Cannot load ${url}`); err.status = 0; throw err; }
+  if (!r.ok) { const err = Error(`${url}: HTTP ${r.status}`); err.status = r.status; throw err; }
+  return r.json();
+}
+
+function renderSource() {
+  const mocked = Object.keys(origins).filter(k => origins[k] === 'mock');
+  $('source').textContent = mocked.length ? `local API · mock data: ${mocked.join(', ')}` : 'local API';
+}
+
+/** GET /api/<name>, or mock/<name>.json when the endpoint is missing (404) or ?mock is set. */
+async function loadOptional(name, path) {
+  if (!FORCE_MOCK) {
+    try { const d = await api(path); origins[name] = 'api'; renderSource(); return d; }
+    catch (e) { if (e.status !== 404) throw e; }
+  }
+  try { const d = await getStatic(`mock/${name}.json`); origins[name] = 'mock'; renderSource(); return d; }
+  catch (e) { const err = Error(`${path} is not served by this version of review_app.py.`); err.missing = true; throw err; }
+}
+
+/** Show a view's missing/error state in place of its boxes. */
+function showViewState(view, e) {
+  document.querySelectorAll(`#view-${view} > .box.major, #view-${view} > .split`).forEach(el => { el.hidden = true; });
+  $(`${view}-missing`).hidden = false;
+  const box = $(`${view}-missing-text`);
+  box.className = e.missing ? 'state' : 'state error';
+  box.innerHTML = e.missing
+    ? `<strong>No ${view} data.</strong> ${esc(e.message)} Update review_app.py, then reload.`
+    : `<strong>Could not load ${view} stats.</strong> ${esc(e.message)} <button class="btn" type="button" data-retry="${view}">Retry</button>`;
+  status(`${view[0].toUpperCase() + view.slice(1)}: ${e.message}`, e.missing ? 'note' : 'error');
+}
+function hideViewState(view) {
+  document.querySelectorAll(`#view-${view} > .box.major, #view-${view} > .split`).forEach(el => { el.hidden = false; });
+  $(`${view}-missing`).hidden = true;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-retry]');
+  if (b) { state.loaded[b.dataset.retry] = null; viewLoaders[b.dataset.retry](); }
+});
+
+// ---------------------------------------------------------------- sortable stat tables
+function setupSort(theadId, sort, rerender) {
+  $(theadId).querySelectorAll('th[data-sort]').forEach(th => {
+    th.innerHTML = `<button type="button" class="sortbtn">${th.innerHTML}<span class="arrow" aria-hidden="true"></span></button>`;
+    th.querySelector('button').onclick = () => {
+      if (sort.key === th.dataset.sort) sort.dir = -sort.dir;
+      else { sort.key = th.dataset.sort; sort.dir = th.dataset.dir === 'asc' ? 1 : -1; }
+      rerender();
+    };
+  });
+}
+function sortRows(theadId, rows, sort) {
+  $(theadId).querySelectorAll('th[data-sort]').forEach(th => {
+    const on = th.dataset.sort === sort.key;
+    if (on) th.setAttribute('aria-sort', sort.dir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
+    th.querySelector('.arrow').textContent = on ? (sort.dir > 0 ? '▲' : '▼') : '';
+  });
+  return [...rows].sort((a, b) => {
+    const va = a[sort.key], vb = b[sort.key];
+    if (va == null) return vb == null ? 0 : 1;
+    if (vb == null) return -1;
+    return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * sort.dir;
+  });
+}
+
+// ---------------------------------------------------------------- charm
+const LOW_CASTS = 20;   // fewer E casts than this: one game's rate is noisy, drawn hollow
+const ROLL = 5;         // rolling window (games) for the per-game trend line
+const pct = v => v == null || !Number.isFinite(v) ? '—' : `${Math.round(v * 100)}%`;
+const range = ci => ci ? `${Math.round(ci[0] * 100)}–${Math.round(ci[1] * 100)}%` : '—';
+const charmSort = {key: 'start', dir: -1}, oppSort = {key: 'n', dir: -1};
+
+/** Label ranges with the level the API used (method.ci_level), e.g. "90% range". */
+function showCiLevel(method) {
+  const level = method && Number.isFinite(method.ci_level) ? `${Math.round(method.ci_level * 100)}%` : null;
+  document.querySelectorAll('[data-ci-label]').forEach(el => { el.textContent = level ? `${level} range` : 'Range'; });
+  document.querySelectorAll('[data-ci-level]').forEach(el => {
+    el.textContent = level ? `${level} bootstrap` : 'bootstrap';
+    if (method && method.iterations) el.title = `${method.iterations} resamples of ${method.resample || 'game'}s`;
+  });
+  return level;
+}
+
+/** Dot = estimate, band = 95% range, brass tick = reference (all games). Coordinates in % so it fits any cell. */
+function ciBar(rate, ci, lo, hi, ref) {
+  const p = v => `${((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * 100).toFixed(2)}%`;
+  let s = '<svg class="ci" aria-hidden="true"><line class="track" x1="0" x2="100%" y1="8" y2="8"/>';
+  if (ref != null) s += `<line class="ref" x1="${p(ref)}" x2="${p(ref)}" y1="1" y2="15"/>`;
+  if (ci) s += `<rect class="range" x="${p(ci[0])}" width="${((Math.min(hi, ci[1]) - Math.max(lo, ci[0])) / (hi - lo) * 100).toFixed(2)}%" y="3" height="10"/>`;
+  if (rate != null) s += `<circle class="dot" cx="${p(rate)}" cy="8" r="4"/>`;
+  return s + '</svg>';
+}
+
+viewLoaders.charm = () => { if (!state.loaded.charm) state.loaded.charm = loadCharm(); };
+async function loadCharm() {
+  hideViewState('charm');
+  $('charm-summary').innerHTML = skeleton(5, 3);
+  $('charm-games').innerHTML = skeleton(8);
+  $('charm-opp').innerHTML = skeleton(4);
+  $('charm-trend').innerHTML = '<div class="state">Loading Charm stats…</div>';
+  try {
+    state.charm = await loadOptional('charm', '/api/charm');
+    renderCharm();
+  } catch (e) { showViewState('charm', e); }
+}
+
+function renderCharm() {
+  const c = state.charm, games = c.games || [], s = c.summary || {};
+  showCiLevel(c.method);
+  $('charm-n').textContent = `n=${s.all ? s.all.n : games.length} games`;
+  $('charm-src').textContent = origins.charm === 'mock' ? 'mock data' : '';
+  if (!games.length) {
+    const msg = 'No Ahri games with E-cast stats stored. Import games with <code>python fetch_matches.py --count 20</code>.';
+    $('charm-summary').innerHTML = emptyRow(5, msg);
+    $('charm-trend').innerHTML = '';
+    $('charm-games').innerHTML = emptyRow(8, 'No games.');
+    $('charm-opp').innerHTML = emptyRow(4, 'No games.');
+    return;
+  }
+  const rows = [['All games', s.all], ['Wins', s.wins], ['Losses', s.losses]];
+  const vals = rows.flatMap(([, r]) => r ? [r.rate, ...(r.ci || [])] : []).filter(Number.isFinite);
+  const lo = Math.max(0, Math.floor((Math.min(...vals) - .05) * 10) / 10);
+  const hi = Math.min(1, Math.ceil((Math.max(...vals) + .05) * 10) / 10);
+  $('charm-scale').innerHTML = `<span>${pct(lo)}</span><span>brass tick = all games</span><span>${pct(hi)}</span>`;
+  $('charm-summary').innerHTML = rows.map(([label, r]) => r
+    ? `<tr><th scope="row">${label}</th><td class="num">${r.n}</td><td class="num charm-rate">${pct(r.rate)}</td>
+        <td class="num">${r.ci ? range(r.ci) : '<span class="cell-note">none, n &lt; 2</span>'}</td>
+        <td>${ciBar(r.rate, r.ci, lo, hi, label === 'All games' || !s.all ? null : s.all.rate)}</td></tr>`
+    : `<tr><th scope="row">${label}</th><td colspan="4" class="cell-note">Not in the response.</td></tr>`).join('');
+  renderCharmTrend(games, s.all);
+  renderCharmGames();
+  renderCharmOpponents();
+}
+
+function renderCharmTrend(games, all) {
+  const list = games.filter(g => Number.isFinite(g.rate)).sort((a, b) => a.start - b.start);
+  const box = $('charm-trend');
+  if (list.length < 2) { box.innerHTML = '<div class="state">The per-game trend needs at least 2 games with E casts.</div>'; return; }
+  const W = 860, H = 232, L = 48, R = 176, T = 22, B = 180;
+  const x = i => +(L + (W - L - R) * i / (list.length - 1)).toFixed(1);
+  const y = v => +(T + (B - T) * (1 - v)).toFixed(1);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Charm estimate per game, oldest to newest, with a ${ROLL}-game rolling rate and the all-games rate">`;
+  svg += `<text class="axis" x="${L}" y="12">Charm est. per game (oldest → newest) · hollow = under ${LOW_CASTS} casts</text>`;
+  for (const v of [0, .25, .5, .75, 1]) svg += `<line class="${v === 0 ? 'zero' : 'grid'}" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${pct(v)}</text>`;
+  let labelAll = null;
+  if (all && Number.isFinite(all.rate)) {
+    if (all.ci) svg += `<rect class="overall-band" x="${L}" width="${W - R - L}" y="${y(all.ci[1])}" height="${y(all.ci[0]) - y(all.ci[1])}"/>`;
+    svg += `<line class="overall" x1="${L}" x2="${W - R}" y1="${y(all.rate)}" y2="${y(all.rate)}"/>`;
+    labelAll = y(all.rate);
+  }
+  const roll = [];
+  for (let i = ROLL - 1; i < list.length; i++) {
+    const win = list.slice(i - ROLL + 1, i + 1), casts = win.reduce((a, g) => a + g.casts, 0);
+    if (casts) roll.push([i, win.reduce((a, g) => a + g.hits, 0) / casts]);
+  }
+  if (roll.length > 1) svg += `<path class="roll" d="M${roll.map(([i, v]) => `${x(i)},${y(v)}`).join('L')}"/>`;
+  list.forEach((g, i) => {
+    svg += `<circle class="pt${g.casts < LOW_CASTS ? ' hollow' : ''}" cx="${x(i)}" cy="${y(g.rate)}" r="4"><title>${isoDay(g.start)} vs ${esc(g.opponent || '?')} · ${g.win ? 'W' : 'L'} · ${g.hits}/${g.casts} = ${pct(g.rate)}</title></circle>`;
+    svg += `<text class="${g.win ? 'win' : 'loss'}" x="${x(i)}" y="${B + 16}" text-anchor="middle">${g.win ? '▲' : '▼'}<title>${g.win ? 'Win' : 'Loss'}</title></text>`;
+    if (i % 5 === 0 || i === list.length - 1) svg += `<text class="axis" x="${x(i)}" y="${B + 34}" text-anchor="middle">${isoDay(g.start).slice(5)}</text>`;
+  });
+  svg += `<text class="axis" x="${W - R + 8}" y="${B + 16}">▲ win ▼ loss</text>`;
+  // direct labels at the right edge, nudged apart when they would overlap
+  let labelRoll = roll.length ? y(roll[roll.length - 1][1]) : null;
+  if (labelAll != null && labelRoll != null && Math.abs(labelAll - labelRoll) < 28) {
+    if (labelRoll <= labelAll) labelRoll = labelAll - 28; else labelRoll = labelAll + 28;
+  }
+  if (labelAll != null) svg += `<text class="label-brass" x="${W - R + 8}" y="${labelAll + 4}">All games ${pct(all.rate)}</text><text class="axis" x="${W - R + 8}" y="${labelAll + 18}">${all.ci ? range(all.ci) : 'no range'} · n=${all.n}</text>`;
+  if (labelRoll != null) svg += `<text class="label-charm" x="${W - R + 8}" y="${labelRoll + 4}">Last ${ROLL} games ${pct(roll[roll.length - 1][1])}</text>`;
+  box.innerHTML = svg + '</svg>';
+}
+
+function reviewCell(id) {
+  return state.matches.some(m => m.match_id === id)
+    ? `<button class="linkbtn" type="button" data-open="${esc(id)}">Open</button>`
+    : '<span class="cell-note" title="Not in the review list: no timeline stored for this game">no timeline</span>';
+}
+
+function renderCharmGames() {
+  const games = state.charm.games || [];
+  $('charm-games-n').textContent = `n=${games.length}`;
+  $('charm-games').innerHTML = sortRows('charm-games-head', games, charmSort).map(g => `<tr>
+    <td class="num" title="${isoDay(g.start)}">${isoDay(g.start).slice(5)}</td><td>${esc(g.opponent || '?')}</td><td>${result(g.win)}</td>
+    <td class="num${g.casts < LOW_CASTS ? ' cell-note' : ''}"${g.casts < LOW_CASTS ? ` title="Under ${LOW_CASTS} casts: noisy"` : ''}>${g.casts ?? '—'}</td>
+    <td class="num">${g.hits ?? '—'}</td><td class="num charm-rate">${pct(g.rate)}</td>
+    <td class="num">${Number.isFinite(g.per_min) ? g.per_min.toFixed(2) : '—'}</td><td>${reviewCell(g.match_id)}</td></tr>`).join('');
+}
+
+function renderCharmOpponents() {
+  const opps = state.charm.by_opponent || [];
+  $('charm-opp-n').textContent = `${opps.length} opponents`;
+  $('charm-opp').innerHTML = sortRows('charm-opp-head', opps, oppSort).map(o => `<tr>
+    <td>${esc(o.opponent || '?')}</td><td class="num">${o.n}</td><td class="num charm-rate">${pct(o.rate)}</td>
+    <td class="num">${o.ci ? range(o.ci) : '<span class="cell-note" title="No range with fewer than 2 games">n &lt; 2</span>'}</td></tr>`).join('')
+    || emptyRow(4, 'No opponents in the response.');
+}
+
+setupSort('charm-games-head', charmSort, renderCharmGames);
+setupSort('charm-opp-head', oppSort, renderCharmOpponents);
+$('charm-games').onclick = e => { const b = e.target.closest('[data-open]'); if (b) openInReview(b.dataset.open); };
+
+// ---------------------------------------------------------------- profile
+const num = v => Number.isFinite(v) ? v.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 2}) : '—';
+const SMALL_N = 3;  // champions with fewer games are dimmed, as the CLI hides them
+const UNITS = {ratio: '', per_10m: 'per 10 min', per_min: 'per min'};
+const STAT_LABELS = {
+  deaths_per_10m: 'Deaths', kill_participation: 'Kill participation', damage_share: 'Team damage share',
+  damage_taken_share: 'Team damage taken share', vision_per_min: 'Vision score', time_dead_share: 'Time spent dead',
+};
+/** `ratio` values are 0–1 and shown as %. */
+const statValue = (v, unit) => unit === 'ratio' ? pct(v) : num(v);
+const statRange = (ci, unit) => ci ? `${statValue(ci[0], unit)}–${statValue(ci[1], unit)}` : null;
+
+viewLoaders.profile = () => { if (!state.loaded.profile) state.loaded.profile = loadProfile(); };
+async function loadProfile() {
+  hideViewState('profile');
+  $('profile-head').innerHTML = '';
+  $('profile-body').innerHTML = skeleton(4, 6);
+  try {
+    state.profile = await loadOptional('profile', '/api/profile');
+    renderProfile();
+  } catch (e) { showViewState('profile', e); }
+}
+
+/** One row per champion on a shared scale: bar = 95% range, dot = mean. Ahri in her accent colour. */
+function compareRows(key, champs) {
+  const items = champs.map(c => ({c, s: (c.stats || []).find(s => s.key === key)})).filter(i => i.s && Number.isFinite(i.s.value));
+  if (!items.length) return '';
+  const vals = items.flatMap(i => [i.s.value, ...(i.s.ci || [])]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * .08 || Math.abs(hi) * .1 || 1; lo -= pad; hi += pad;
+  const W = 300, X0 = 64, X1 = 292, rowH = 16, H = rowH * items.length + 18;
+  const x = v => +(X0 + (X1 - X0) * (v - lo) / (hi - lo)).toFixed(1);
+  const unit = items[0].s.unit;  // one stat per row, so one unit
+  let svg = `<svg class="cmp-plot" viewBox="0 0 ${W} ${H}" aria-hidden="true">`;
+  items.forEach(({c, s}, i) => {
+    const yy = 9 + i * rowH;
+    svg += `<g class="${c.champion === 'Ahri' ? 'ahri' : ''}${c.n < SMALL_N ? ' small-n' : ''}"><text class="name" x="0" y="${yy + 4}">${esc(c.champion)}</text><line class="track" x1="${X0}" x2="${X1}" y1="${yy}" y2="${yy}"/>`;
+    if (s.ci) svg += `<line class="range" x1="${x(s.ci[0])}" x2="${Math.max(x(s.ci[1]), x(s.ci[0]) + 1)}" y1="${yy}" y2="${yy}"/>`;
+    svg += `<circle class="dot" cx="${x(s.value)}" cy="${yy}" r="3.5"/></g>`;
+  });
+  svg += `<text class="axis" x="${X0}" y="${H - 2}">${statValue(lo, unit)}</text><text class="axis" x="${X1}" y="${H - 2}" text-anchor="end">${statValue(hi, unit)}</text>`;
+  return svg + '</svg>';
+}
+
+function renderProfile() {
+  const champs = [...(state.profile.champions || [])].sort((a, b) => b.n - a.n);
+  const level = showCiLevel(state.profile.method);
+  $('profile-src').textContent = origins.profile === 'mock' ? 'mock data' : '';
+  if (!champs.length) {
+    $('profile-n').textContent = 'n=0';
+    $('profile-head').innerHTML = '<tr><th scope="col">Stat</th></tr>';
+    $('profile-body').innerHTML = emptyRow(1, 'No games stored. Import games with <code>python fetch_matches.py --count 20</code>.');
+    return;
+  }
+  $('profile-n').textContent = `${champs.length} champions · n=${champs.reduce((a, c) => a + c.n, 0)} games`;
+  $('profile-head').innerHTML = `<tr><th scope="col">Stat</th>${champs.map(c => `<th scope="col" class="num${c.n < SMALL_N ? ' small-n' : ''}">${esc(c.champion)} · n=${c.n}${Number.isFinite(c.wins) ? `<br><span class="cell-note">${c.wins}W ${c.n - c.wins}L</span>` : ''}</th>`).join('')}<th scope="col" class="cmp">${level || 'Bootstrap'} ranges, shared scale per row</th></tr>`;
+  const keys = [];
+  for (const c of champs) for (const s of c.stats || []) if (!keys.some(k => k.key === s.key)) keys.push(s);
+  $('profile-body').innerHTML = keys.map(k => `<tr><th scope="row">${esc(STAT_LABELS[k.key] || k.label)}${UNITS[k.unit] ? ` <span class="cell-note">${UNITS[k.unit]}</span>` : ''}</th>${champs.map(c => {
+    const s = (c.stats || []).find(x => x.key === k.key);
+    if (!s || !Number.isFinite(s.value)) return `<td class="num cell-note"${c.n < SMALL_N ? ' data-small' : ''}>—</td>`;
+    const n = Number.isFinite(s.n) ? s.n : c.n;
+    const r = statRange(s.ci, s.unit);
+    const note = [r || `no range, n=${n}`, n !== c.n && r ? `n=${n}` : ''].filter(Boolean).join(' · ');
+    return `<td class="num${c.n < SMALL_N ? ' small-n' : ''}">${statValue(s.value, s.unit)}<br><span class="cell-note">${note}</span></td>`;
+  }).join('')}<td class="cmp">${compareRows(k.key, champs)}</td></tr>`).join('');
+}
+
 // ---------------------------------------------------------------- views (hash routing)
 const VIEWS = ['review', 'charm', 'profile'];
-const viewLoaders = {};  // view name -> function run on first show
 
 function showView() {
   const name = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'review';

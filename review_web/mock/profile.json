@@ -1,0 +1,283 @@
+{
+ "champions": [
+  {
+   "champion": "Ahri",
+   "n": 21,
+   "wins": 9,
+   "stats": [
+    {
+     "key": "deaths_per_10m",
+     "label": "deaths/10m",
+     "value": 2.2,
+     "ci": [
+      1.9,
+      2.5
+     ],
+     "unit": "per_10m",
+     "n": 21
+    },
+    {
+     "key": "kill_participation",
+     "label": "kp",
+     "value": 0.53,
+     "ci": [
+      0.5,
+      0.56
+     ],
+     "unit": "ratio",
+     "n": 21
+    },
+    {
+     "key": "damage_share",
+     "label": "dmg share",
+     "value": 0.23,
+     "ci": [
+      0.215,
+      0.245
+     ],
+     "unit": "ratio",
+     "n": 21
+    },
+    {
+     "key": "damage_taken_share",
+     "label": "taken share",
+     "value": 0.18,
+     "ci": [
+      0.168,
+      0.192
+     ],
+     "unit": "ratio",
+     "n": 21
+    },
+    {
+     "key": "vision_per_min",
+     "label": "vision/m",
+     "value": 1.25,
+     "ci": [
+      1.14,
+      1.36
+     ],
+     "unit": "per_min",
+     "n": 21
+    },
+    {
+     "key": "time_dead_share",
+     "label": "dead %",
+     "value": 0.11,
+     "ci": [
+      0.095,
+      0.125
+     ],
+     "unit": "ratio",
+     "n": 21
+    }
+   ]
+  },
+  {
+   "champion": "Zoe",
+   "n": 9,
+   "wins": 4,
+   "stats": [
+    {
+     "key": "deaths_per_10m",
+     "label": "deaths/10m",
+     "value": 1.9,
+     "ci": [
+      1.5,
+      2.3
+     ],
+     "unit": "per_10m",
+     "n": 9
+    },
+    {
+     "key": "kill_participation",
+     "label": "kp",
+     "value": 0.51,
+     "ci": [
+      0.46,
+      0.56
+     ],
+     "unit": "ratio",
+     "n": 9
+    },
+    {
+     "key": "damage_share",
+     "label": "dmg share",
+     "value": 0.22,
+     "ci": [
+      0.195,
+      0.245
+     ],
+     "unit": "ratio",
+     "n": 9
+    },
+    {
+     "key": "damage_taken_share",
+     "label": "taken share",
+     "value": 0.15,
+     "ci": [
+      0.135,
+      0.165
+     ],
+     "unit": "ratio",
+     "n": 9
+    },
+    {
+     "key": "vision_per_min",
+     "label": "vision/m",
+     "value": 1.34,
+     "ci": [
+      1.18,
+      1.5
+     ],
+     "unit": "per_min",
+     "n": 9
+    },
+    {
+     "key": "time_dead_share",
+     "label": "dead %",
+     "value": 0.12,
+     "ci": [
+      0.095,
+      0.145
+     ],
+     "unit": "ratio",
+     "n": 9
+    }
+   ]
+  },
+  {
+   "champion": "Lulu",
+   "n": 7,
+   "wins": 5,
+   "stats": [
+    {
+     "key": "deaths_per_10m",
+     "label": "deaths/10m",
+     "value": 2.0,
+     "ci": [
+      1.5,
+      2.5
+     ],
+     "unit": "per_10m",
+     "n": 7
+    },
+    {
+     "key": "kill_participation",
+     "label": "kp",
+     "value": 0.53,
+     "ci": [
+      0.47,
+      0.59
+     ],
+     "unit": "ratio",
+     "n": 7
+    },
+    {
+     "key": "damage_share",
+     "label": "dmg share",
+     "value": 0.08,
+     "ci": [
+      0.065,
+      0.095
+     ],
+     "unit": "ratio",
+     "n": 7
+    },
+    {
+     "key": "damage_taken_share",
+     "label": "taken share",
+     "value": 0.15,
+     "ci": [
+      0.125,
+      0.175
+     ],
+     "unit": "ratio",
+     "n": 7
+    },
+    {
+     "key": "vision_per_min",
+     "label": "vision/m",
+     "value": 2.75,
+     "ci": [
+      2.45,
+      3.05
+     ],
+     "unit": "per_min",
+     "n": 7
+    },
+    {
+     "key": "time_dead_share",
+     "label": "dead %",
+     "value": 0.09,
+     "ci": [
+      0.065,
+      0.115
+     ],
+     "unit": "ratio",
+     "n": 6
+    }
+   ]
+  },
+  {
+   "champion": "Kayle",
+   "n": 1,
+   "wins": 0,
+   "stats": [
+    {
+     "key": "deaths_per_10m",
+     "label": "deaths/10m",
+     "value": 3.1,
+     "ci": null,
+     "unit": "per_10m",
+     "n": 1
+    },
+    {
+     "key": "kill_participation",
+     "label": "kp",
+     "value": 0.4,
+     "ci": null,
+     "unit": "ratio",
+     "n": 1
+    },
+    {
+     "key": "damage_share",
+     "label": "dmg share",
+     "value": 0.19,
+     "ci": null,
+     "unit": "ratio",
+     "n": 1
+    },
+    {
+     "key": "damage_taken_share",
+     "label": "taken share",
+     "value": 0.17,
+     "ci": null,
+     "unit": "ratio",
+     "n": 1
+    },
+    {
+     "key": "vision_per_min",
+     "label": "vision/m",
+     "value": 0.9,
+     "ci": null,
+     "unit": "per_min",
+     "n": 1
+    },
+    {
+     "key": "time_dead_share",
+     "label": "dead %",
+     "value": 0.16,
+     "ci": null,
+     "unit": "ratio",
+     "n": 1
+    }
+   ]
+  }
+ ],
+ "method": {
+  "ci_level": 0.9,
+  "iterations": 4000,
+  "resample": "game"
+ }
+}
