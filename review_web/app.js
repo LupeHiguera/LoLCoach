@@ -29,8 +29,37 @@ const state = {
   view: 'review', loaded: {}, charm: null, profile: null,
 };
 
-// ---------------------------------------------------------------- data
+// ---------------------------------------------------------------- data source
+// Local app: /api/* from review_app.py. Static demo (<html data-mode="demo">, built by
+// deploy_demo.ps1): read-only demo/data/*.json with the same shapes (API.md, "Demo snapshot").
+// ?mock reads review_web/mock/*.json the same way, to preview the demo locally.
+const DATA_BASE = document.documentElement.dataset.mode === 'demo' ? 'data/'
+  : new URLSearchParams(location.search).has('mock') ? 'mock/' : null;
+const READ_ONLY = DATA_BASE !== null;
+const DATA_FILES = {'/api/matches': 'matches.json', '/api/focus': 'focus.json', '/api/charm': 'charm.json',
+  '/api/profile': 'profile.json', '/api/recorder': 'recorder.json'};
+
+/** The snapshot file standing in for an /api path, or undefined if the demo has none. */
+function dataFile(path) {
+  const url = new URL(path, location.href);
+  if (url.pathname === '/api/match') return `match/${encodeURIComponent(url.searchParams.get('id') || '')}.json`;
+  return DATA_FILES[url.pathname];
+}
+
+async function staticData(path, body) {
+  if (body !== undefined) throw Error('Read-only demo: nothing is saved.');
+  const file = dataFile(path);
+  let r = null;
+  if (file) try { r = await fetch(DATA_BASE + file); } catch (e) { throw Error(`Cannot load ${DATA_BASE}${file}.`); }
+  if (!r || !r.ok) {
+    const err = Error(path.startsWith('/api/match?') ? 'Match not found' : `${DATA_BASE}${file || path} is missing from this snapshot.`);
+    err.status = 404; throw err;
+  }
+  return r.json();
+}
+
 async function api(path, body) {
+  if (READ_ONLY) return staticData(path, body);
   const init = body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)};
   let r;
   try { r = await fetch(path, init); } catch (e) {
@@ -112,7 +141,7 @@ async function loadMatch(id) {
     const detail = await api('/api/match?id=' + encodeURIComponent(id));
     if (request !== state.request) return;
     state.detail = detail; state.moment = null; state.dirty = false;
-    clearVideo();
+    clearVideo(); showLinkedRecording();
     $('review-empty').hidden = true; $('detail').hidden = false;
     renderMatchHeader(); renderMatches(); renderChart(); renderMoments(); renderReviewForm();
     status(`Loaded ${detail.match.my_champion} vs ${detail.match.opp_champion || 'unknown'} · ${isoDay(detail.match.game_start_ms)}`, 'note');
@@ -354,6 +383,23 @@ function clearVideo() {
   $('video-file').value = ''; $('video-offset').value = '0'; $('video-status').textContent = '';
 }
 
+/** Load the OBS recording linked to this match (API.md: match.recording), else explain what is missing. */
+function showLinkedRecording() {
+  const rec = state.detail.recording, note = $('recording-note');
+  note.className = 'dim';
+  if (!rec) { note.textContent = 'No recording linked. Choose a local file; it stays in this browser.'; return; }
+  const name = String(rec.path || '').split(/[\\/]/).pop();
+  if (!rec.url) {
+    note.className = 'state error';
+    note.textContent = `Linked recording ${name || ''} is no longer on disk. Choose the file if it moved.`;
+    return;
+  }
+  $('video').src = rec.url; $('video').hidden = false;
+  if (Number.isFinite(rec.offset_s)) $('video-offset').value = String(rec.offset_s);
+  note.textContent = `Linked recording: ${name}. ` + (Number.isFinite(rec.offset_s)
+    ? 'Offset read from the game clock.' : 'Game clock not read; set the offset by hand.');
+}
+
 $('video-file').onchange = () => {
   const file = $('video-file').files[0];
   if (!file) return;
@@ -362,7 +408,7 @@ $('video-file').onchange = () => {
   $('video').src = state.videoURL; $('video').hidden = false;
   $('video-status').textContent = 'Recording loaded. Check that the offset lines up the game clock.';
 };
-$('video').onerror = () => { if (state.videoURL) $('video-status').textContent = 'The browser cannot play this format. Use an MP4 or WebM recording.'; };
+$('video').onerror = () => { if ($('video').getAttribute('src')) $('video-status').textContent = 'The browser cannot play this format. Use an MP4 or WebM recording.'; };
 $('seek-video').onclick = () => {
   const v = $('video'), offset = Number($('video-offset').value);
   if (!state.moment) { status('Pick a moment before jumping in the recording.', 'error'); return; }
@@ -376,43 +422,18 @@ $('seek-video').onclick = () => {
 
 const viewLoaders = {};  // view name -> function run each time the view is shown
 
-// ---------------------------------------------------------------- endpoints that may not exist yet
-const params = new URLSearchParams(location.search);
-const FORCE_MOCK = params.has('mock');  // ?mock: use review_web/mock/*.json for charm/profile
-const origins = {};                     // endpoint name -> 'api' | 'mock'
-
-async function getStatic(url) {
-  let r;
-  try { r = await fetch(url); } catch (e) { const err = Error(`Cannot load ${url}`); err.status = 0; throw err; }
-  if (!r.ok) { const err = Error(`${url}: HTTP ${r.status}`); err.status = r.status; throw err; }
-  return r.json();
-}
-
-function renderSource() {
-  const mocked = Object.keys(origins).filter(k => origins[k] === 'mock');
-  $('source').textContent = mocked.length ? `local API · mock data: ${mocked.join(', ')}` : 'local API';
-}
-
-/** GET /api/<name>, or mock/<name>.json when the endpoint is missing (404) or ?mock is set. */
-async function loadOptional(name, path) {
-  if (!FORCE_MOCK) {
-    try { const d = await api(path); origins[name] = 'api'; renderSource(); return d; }
-    catch (e) { if (e.status !== 404) throw e; }
-  }
-  try { const d = await getStatic(`mock/${name}.json`); origins[name] = 'mock'; renderSource(); return d; }
-  catch (e) { const err = Error(`${path} is not served by this version of review_app.py.`); err.missing = true; throw err; }
-}
-
-/** Show a view's missing/error state in place of its boxes. */
+// ---------------------------------------------------------------- view load errors
+/** Show a view's error state in place of its boxes. A 404 means review_app.py predates the endpoint. */
 function showViewState(view, e) {
   document.querySelectorAll(`#view-${view} > .box.major, #view-${view} > .split`).forEach(el => { el.hidden = true; });
   $(`${view}-missing`).hidden = false;
   const box = $(`${view}-missing-text`);
-  box.className = e.missing ? 'state' : 'state error';
-  box.innerHTML = e.missing
-    ? `<strong>No ${view} data.</strong> ${esc(e.message)} Update review_app.py, then reload.`
+  const old = e.status === 404 && !READ_ONLY;
+  box.className = 'state error';
+  box.innerHTML = old
+    ? `<strong>No ${view} data.</strong> This review_app.py has no /api/${view}. Update it, restart it, then <button class="btn" type="button" data-retry="${view}">Retry</button>`
     : `<strong>Could not load ${view} stats.</strong> ${esc(e.message)} <button class="btn" type="button" data-retry="${view}">Retry</button>`;
-  status(`${view[0].toUpperCase() + view.slice(1)}: ${e.message}`, e.missing ? 'note' : 'error');
+  status(`${view[0].toUpperCase() + view.slice(1)}: ${e.message}`, 'error');
 }
 function hideViewState(view) {
   document.querySelectorAll(`#view-${view} > .box.major, #view-${view} > .split`).forEach(el => { el.hidden = false; });
@@ -484,7 +505,7 @@ async function loadCharm() {
   $('charm-opp').innerHTML = skeleton(4);
   $('charm-trend').innerHTML = '<div class="state">Loading Charm stats…</div>';
   try {
-    state.charm = await loadOptional('charm', '/api/charm');
+    state.charm = await api('/api/charm');
     renderCharm();
   } catch (e) { showViewState('charm', e); }
 }
@@ -493,7 +514,6 @@ function renderCharm() {
   const c = state.charm, games = c.games || [], s = c.summary || {};
   showCiLevel(c.method);
   $('charm-n').textContent = `n=${s.all ? s.all.n : games.length} games`;
-  $('charm-src').textContent = origins.charm === 'mock' ? 'mock data' : '';
   if (!games.length) {
     const msg = 'No Ahri games with E-cast stats stored. Import games with <code>python fetch_matches.py --count 20</code>.';
     $('charm-summary').innerHTML = emptyRow(5, msg);
@@ -602,7 +622,7 @@ async function loadProfile() {
   $('profile-head').innerHTML = '';
   $('profile-body').innerHTML = skeleton(4, 6);
   try {
-    state.profile = await loadOptional('profile', '/api/profile');
+    state.profile = await api('/api/profile');
     renderProfile();
   } catch (e) { showViewState('profile', e); }
 }
@@ -613,7 +633,8 @@ function compareRows(key, champs) {
   if (!items.length) return '';
   const vals = items.flatMap(i => [i.s.value, ...(i.s.ci || [])]);
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  const pad = (hi - lo) * .08 || Math.abs(hi) * .1 || 1; lo -= pad; hi += pad;
+  const pad = (hi - lo) * .08 || Math.abs(hi) * .1 || 1;
+  lo = lo >= 0 ? Math.max(0, lo - pad) : lo - pad; hi += pad;  // these stats are never negative
   const W = 300, X0 = 64, X1 = 292, rowH = 16, H = rowH * items.length + 18;
   const x = v => +(X0 + (X1 - X0) * (v - lo) / (hi - lo)).toFixed(1);
   const unit = items[0].s.unit;  // one stat per row, so one unit
@@ -631,7 +652,6 @@ function compareRows(key, champs) {
 function renderProfile() {
   const champs = [...(state.profile.champions || [])].sort((a, b) => b.n - a.n);
   const level = showCiLevel(state.profile.method);
-  $('profile-src').textContent = origins.profile === 'mock' ? 'mock data' : '';
   if (!champs.length) {
     $('profile-n').textContent = 'n=0';
     $('profile-head').innerHTML = '<tr><th scope="col">Stat</th></tr>';
@@ -650,6 +670,67 @@ function renderProfile() {
     const note = [r || `no range, n=${n}`, n !== c.n && r ? `n=${n}` : ''].filter(Boolean).join(' · ');
     return `<td class="num${c.n < SMALL_N ? ' small-n' : ''}">${statValue(s.value, s.unit)}<br><span class="cell-note">${note}</span></td>`;
   }).join('')}<td class="cmp">${compareRows(k.key, champs)}</td></tr>`).join('');
+}
+
+// ---------------------------------------------------------------- recorder (OBS auto-record, API.md /api/recorder)
+const REC_POLL_MS = 5000;  // refresh while armed or recording; never polls when idle and off
+const OBS_TEXT = {running: 'OBS connected', stopped: 'OBS not running', unavailable: 'OBS not set up'};
+const REC_STATUS = {recording: 'recording now', saved: 'saved, links after the next fetch', linked: 'linked', failed: 'failed'};
+let recTimer = null;
+
+function renderRecorder(r) {
+  const box = $('rec-armed');
+  box.checked = !!r.armed;
+  box.disabled = READ_ONLY;
+  const game = r.game === 'in_game' ? 'game running, recording' : 'waiting for a game';
+  const line = $('rec-line');
+  if (READ_ONLY) { line.className = 'rec-line'; line.textContent = 'Off in the demo.'; $('rec-last').textContent = ''; return; }
+  line.className = 'rec-line' + (r.error || r.obs === 'unavailable' ? ' error' : '');
+  line.textContent = [r.armed ? `Armed · ${game}` : 'Off', OBS_TEXT[r.obs] || r.obs, r.error].filter(Boolean).join(' · ');
+  const last = r.last;
+  if (!last) { $('rec-last').textContent = 'No recordings yet.'; return; }
+  const when = last.started_at ? new Date(last.started_at).toLocaleString([], {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'}) : '—';
+  const m = last.match_id && state.matches.find(x => x.match_id === last.match_id);
+  const link = m ? ` · <button class="linkbtn" type="button" data-open="${esc(m.match_id)}">${esc(m.my_champion)} v ${esc(m.opp_champion || '?')}</button>` : '';
+  $('rec-last').innerHTML = `Last: ${esc(when)} · <span class="${last.status === 'failed' ? 'bad' : ''}">${esc(REC_STATUS[last.status] || last.status)}</span>${link}`;
+}
+
+async function refreshRecorder() {
+  clearTimeout(recTimer);
+  try {
+    const r = await api('/api/recorder');
+    renderRecorder(r);
+    if (!READ_ONLY && (r.armed || (r.last && r.last.status === 'recording'))) recTimer = setTimeout(refreshRecorder, REC_POLL_MS);
+  } catch (e) {
+    $('rec-line').className = 'rec-line error';
+    $('rec-line').textContent = e.status === 404 ? 'This review_app.py has no recorder. Update it.' : `Recorder status unavailable: ${e.message}`;
+  }
+}
+
+$('rec-armed').onchange = async () => {
+  const box = $('rec-armed'), want = box.checked;
+  box.disabled = true;
+  try {
+    renderRecorder(await api('/api/recorder', {armed: want}));
+    status(want ? `Auto-record armed ${hhmm()}` : `Auto-record off ${hhmm()}`);
+    refreshRecorder();
+  } catch (e) {
+    box.checked = !want;
+    status(`Auto-record not changed: ${e.message}`, 'error');
+  } finally { box.disabled = READ_ONLY; }
+};
+$('rec-last').onclick = e => { const b = e.target.closest('[data-open]'); if (b) openInReview(b.dataset.open); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshRecorder(); else clearTimeout(recTimer); });
+
+// ---------------------------------------------------------------- read-only demo
+/** Disable every save in the static demo and say so on the control (PLAN.md, "Demo on AWS"). */
+function markReadOnly() {
+  if (!READ_ONLY) { $('source').textContent = 'local API'; return; }
+  for (const id of ['save-review', 'save-focus', 'use-focus', 'edit-focus']) {
+    const b = $(id);
+    b.disabled = true; b.textContent += ' (demo)'; b.title = 'Read-only demo: nothing is saved.';
+  }
+  $('source').textContent = DATA_BASE === 'mock/' ? 'mock data · read-only' : 'demo snapshot · read-only';
 }
 
 // ---------------------------------------------------------------- views (hash routing)
@@ -699,6 +780,7 @@ window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDir
 
 // ---------------------------------------------------------------- start
 (async () => {
+  markReadOnly();
   showView();
   $('matches').innerHTML = skeleton(4);
   try {
@@ -715,4 +797,5 @@ window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDir
     showReviewEmpty(`<strong>Could not load your games.</strong> ${esc(e.message)}`, true);
     status(e.message, 'error');
   }
+  refreshRecorder();  // after matches, so "last" can name the linked game
 })();

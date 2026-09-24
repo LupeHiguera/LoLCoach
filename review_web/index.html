@@ -38,6 +38,18 @@
     </div>
   </section>
 
+  <section class="box" aria-labelledby="recorder-h">
+    <div class="titlebar">
+      <h2 id="recorder-h">Recorder</h2>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="About auto-record" aria-describedby="tip-recorder">ⓘ</button><span class="tip" role="tooltip" id="tip-recorder">When armed, review_app.py asks OBS (via obs-websocket) to record while Riot's Live Client Data API reports a game, then links the file to the match after the next fetch. Nothing is shown in game, and no input is read. Off whenever the app starts.</span></span>
+    </div>
+    <div class="box-body">
+      <label class="check"><input type="checkbox" id="rec-armed" disabled> Auto-record with OBS</label>
+      <p class="rec-line" id="rec-line" aria-live="polite">Checking OBS…</p>
+      <p class="rec-line dim" id="rec-last"></p>
+    </div>
+  </section>
+
   <section class="box" aria-labelledby="games-h">
     <div class="titlebar"><h2 id="games-h">Games</h2><span class="meta" id="match-count"></span></div>
     <div class="filters">
@@ -147,7 +159,6 @@
     <div class="titlebar">
       <h2 id="charm-h">Charm est. · Ahri</h2>
       <span class="meta" id="charm-n"></span>
-      <span class="meta src" id="charm-src"></span>
       <span class="tip-wrap"><button class="info" type="button" aria-label="How Charm est. is calculated" aria-describedby="tip-charm">ⓘ</button><span class="tip" role="tooltip" id="tip-charm">Charm est. = enemy champion immobilizations ÷ E casts, from Riot's end-of-game stats, pooled across games (long games weigh more). Charm is Ahri's only crowd control, so this approximates a hit rate; it is not a per-cast log and has not been checked against video. Ranges are <span data-ci-level>bootstrap</span> intervals that resample whole games. Games with fewer than 20 casts are drawn hollow because one game's rate is noisy. A win/loss gap does not show cause.</span></span>
     </div>
     <div class="box-body">
@@ -193,7 +204,6 @@
     <div class="titlebar">
       <h2 id="profile-h">Habits per champion</h2>
       <span class="meta" id="profile-n"></span>
-      <span class="meta src" id="profile-src"></span>
       <span class="tip-wrap"><button class="info" type="button" aria-label="How the profile is calculated" aria-describedby="tip-profile">ⓘ</button><span class="tip" role="tooltip" id="tip-profile">Per-game means from Riot's end-of-game stats, including games without a timeline. Ranges are <span data-ci-level>bootstrap</span> intervals that resample whole games; with n under 5 they are wide, and with n = 1 there is none. Roles have different norms (Lulu is a support), so compare habits, not raw numbers. Champions with fewer than 3 games are dimmed. Differences between champions are not causes.</span></span>
     </div>
     <div class="scroll">

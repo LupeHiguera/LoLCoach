@@ -309,7 +309,6 @@ legend { font: 15px var(--display); color: var(--brass-500); padding: 0 4px; }
 video { display: block; width: 100%; max-height: 360px; background: #000; margin-top: 8px; }
 
 /* ---------- charm and profile views ---------- */
-.titlebar .src { color: var(--warn); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 12px; align-items: start; }
 .stat .cell-note { white-space: nowrap; }
 .charm-scroll { max-height: 420px; }
@@ -350,6 +349,14 @@ svg.cmp-plot .ahri .name { fill: var(--charm); }
 svg.cmp-plot .axis { fill: var(--ash); font: 12px var(--body); }
 .profile-table .small-n { color: var(--ash); }
 svg.cmp-plot .small-n { opacity: .6; }
+
+/* ---------- recorder box (sidebar) ---------- */
+.check { display: flex; gap: 8px; align-items: center; font-weight: bold; cursor: pointer; }
+.check input { width: auto; margin: 0; accent-color: var(--brass-500); }
+.check:has(input:disabled) { cursor: not-allowed; color: var(--ash); }
+.rec-line { margin: 4px 0 0; }
+.rec-line.error { color: var(--parchment); border-left: 4px solid var(--loss); padding-left: 8px; }
+.rec-line .bad { color: var(--parchment); font-weight: bold; border-bottom: 2px solid var(--loss); }
 
 /* empty / error / partial notices inside a box */
 .state { padding: 12px; color: var(--ash); }
