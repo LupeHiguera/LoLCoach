@@ -20,9 +20,11 @@ demo (UI agent). Change this file first, then the code.
   timestamps, sync status, bounded kill events, selected frames, focus and selected
   knowledge. No match ID, player identifiers, local absolute paths, raw API JSON,
   outcomes or full-match history. Frame filenames are relative to `packet.json`.
-- **observations**: the same moment ID, model-observed statements with game-clock
-  timestamps and evidence references, plus explicit unknowns. Model observations
-  are never automatically marked human-verified.
+- **observations**: the same moment ID, statements with game-clock timestamps and
+  evidence references, plus explicit unknowns. Model output must be
+  `source: local_vision`, `verification: model_observed`. Stored evidence may also use
+  `verification: human_verified` (checked by the player) and `source: human`
+  (which requires `human_verified`).
 - **review**: the same moment ID, assessment (`reviewable` or `needs_more_evidence`),
   cited observations/hypotheses, an optional alternative with tradeoff and citations,
   optional practice focus, and missing evidence. Insufficient evidence means no
@@ -66,7 +68,9 @@ Runs contain `run.json` (dataset/request fingerprints, configuration, runtime an
 dated pricing), hashed per-case files (status, result, latency, usage, served model,
 cost reservation/estimate), and `report.json`. Status is `pending`, `ok` or `failed`;
 selected cases without files are reported as `not_run`. Reservation precedes the
-request. Resuming skips all existing attempts. A lock prevents concurrent writers;
+request. Resuming skips all existing attempts. Report rates count finished attempts
+(`ok` + `failed`) only and carry `*_ci95` Wilson intervals; assessment agreement is
+over successful labelled results (`assessment_labelled_ok`). A lock prevents concurrent writers;
 after an interrupted run, inspect pending cases before manually removing a stale
 `.lock`. Changing model/prompt/evidence/configuration requires a new directory.
 

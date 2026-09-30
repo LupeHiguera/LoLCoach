@@ -61,8 +61,9 @@ class DatasetTests(unittest.TestCase):
     def run_local(self, response=None):
         calls = []
 
-        def complete(_, request, with_metadata):
+        def complete(_, request, with_metadata, timeout_s):
             self.assertTrue(with_metadata)
+            self.assertEqual(timeout_s, harness.MODEL_TIMEOUT_S)
             calls.append(request)
             context = json.loads(request['messages'][1]['content'][0]['text'])
             result = answer(context) if response is None else response
@@ -257,6 +258,18 @@ class DatasetTests(unittest.TestCase):
             self.assertGreater(summary['reserved_usd'], 0)
             self.assertNotIn('private server error', (evaluation.result_path(self.output, 'missing-footage')).read_text())
 
+    def test_stale_lock_explains_recovery_and_leftover_tmp_is_replaced(self):
+        self.output.mkdir()
+        (self.output / '.lock').touch()
+        with self.assertRaisesRegex(ValueError, 'interrupted'):
+            self.run_local()
+        (self.output / '.lock').unlink()
+        self.run_local()
+        (self.output / 'report.json.tmp').write_text('partial')
+        summary, calls = self.run_local()
+        self.assertEqual((summary['counts']['ok'], len(calls)), (2, 0))
+        self.assertFalse((self.output / 'report.json.tmp').exists())
+
     def test_pending_request_is_never_retransmitted_on_resume(self):
         self.run_local()
         target = evaluation.result_path(self.output, 'missing-footage')
@@ -316,6 +329,17 @@ class DatasetTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+
+class ReportTests(unittest.TestCase):
+    def test_wilson_interval_is_wide_for_few_cases_and_absent_without_any(self):
+        self.assertIsNone(evaluation.wilson_95(0, 0))
+        low, high = evaluation.wilson_95(4, 5)
+        self.assertLess(low, 0.4)
+        self.assertGreater(high, 0.95)
+        low, high = evaluation.wilson_95(0, 10)
+        self.assertEqual(low, 0.0)
+        self.assertGreater(high, 0.25)
 
 
 class CloudTests(unittest.TestCase):
