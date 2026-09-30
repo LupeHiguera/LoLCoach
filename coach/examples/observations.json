@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-b90c83a6eaf3ed9c",
+  "observations": [],
+  "unknowns": [
+    "Synthetic fixture only: no gameplay frames were supplied.",
+    "Game-clock alignment has not been verified."
+  ]
+}

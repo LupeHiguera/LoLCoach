@@ -28,9 +28,15 @@ python fetch_matches.py --count 20    # needs RIOT_API_KEY and RIOT_ID in .env
 - **No ban risk.** Use official Riot APIs, the user's own recordings and the user's own
   replays only. Never add memory reading, input hooks or automation, overlays, or
   anything shown or spoken while a game is running. Champ select and post-game are fine.
-- **Local-first.** Data, video and audio stay on this machine. Only the Claude coach
-  calls the cloud, and it gets the user's own match data with other players' PUUIDs
-  and names stripped.
+- **Local-first.** Databases, notes, video, frames and audio stay on this machine.
+  Post-game coaching may use OpenAI or Claude with sanitised text evidence from
+  the user's own matches. Strip player names, PUUIDs, Riot IDs, local paths and
+  raw API JSON before cloud calls. Never upload recordings, frames or audio.
+  Local model endpoints must be loopback-only; cloud clients are separate and explicit.
+- **Moment context.** Each observation or coaching request starts fresh for one
+  bounded moment. Include only evidence at or before its decision timestamp and
+  explicitly selected game knowledge. No chat history, previous reviews, full-match
+  dumps or later outcomes. Unknowns and unverified model observations stay labelled.
 - **Privacy.** Never commit `*.db`, `data/`, `.env`, recordings or audio. They hold
   API keys and other players' identifiers. Check `git status` before any commit.
 - **Honest signals.** Derived numbers are review prompts, not diagnoses. Show sample

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "synthetic_example": true,
+  "match": {
+    "match_id": "EXAMPLE_ONLY",
+    "patch": "example",
+    "my_champion": "Ahri",
+    "opp_champion": "Akali",
+    "duration_s": 600
+  },
+  "sync": {"offset_s": 0, "verified": false},
+  "clips": [
+    {
+      "moment_id": "death-300000",
+      "file": "death-300000.mp4",
+      "death_game_ms": 300000,
+      "source_start_s": 240,
+      "source_end_s": 310,
+      "game_start_ms": 240000,
+      "game_end_ms": 310000,
+      "death_clip_s": 60,
+      "truncated_before": false,
+      "truncated_after": false,
+      "events": [
+        {"time": 300000, "side": "enemy", "killer": "Akali", "victim": "Ahri", "me": "death", "assists": [], "x": null, "y": null, "clip_s": 60}
+      ]
+    }
+  ],
+  "skipped": []
+}

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-b90c83a6eaf3ed9c",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Akali",
+  "start_ms": 265000,
+  "decision_ms": 295000,
+  "sync_verified": false,
+  "focus": "Deaths and positioning",
+  "frames": [
+    {
+      "id": "frame-265000",
+      "game_ms": 265000,
+      "image_file": "frame-265000.png"
+    },
+    {
+      "id": "frame-271000",
+      "game_ms": 271000,
+      "image_file": "frame-271000.png"
+    },
+    {
+      "id": "frame-277000",
+      "game_ms": 277000,
+      "image_file": "frame-277000.png"
+    },
+    {
+      "id": "frame-283000",
+      "game_ms": 283000,
+      "image_file": "frame-283000.png"
+    },
+    {
+      "id": "frame-289000",
+      "game_ms": 289000,
+      "image_file": "frame-289000.png"
+    },
+    {
+      "id": "frame-295000",
+      "game_ms": 295000,
+      "image_file": "frame-295000.png"
+    }
+  ],
+  "events": [],
+  "knowledge": []
+}

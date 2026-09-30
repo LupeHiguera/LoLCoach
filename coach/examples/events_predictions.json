@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-actions",
+  "start_ms": 0,
+  "decision_ms": 30000,
+  "events": [
+    {"label": "charm_cast", "actor": "self", "game_ms": 5100},
+    {"label": "charm_hit", "actor": "enemy-mid", "game_ms": 5500},
+    {"label": "charm_cast", "actor": "self", "game_ms": 20000}
+  ]
+}

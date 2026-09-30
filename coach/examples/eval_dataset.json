@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "synthetic-coach-smoke",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "missing-footage",
+      "group": "synthetic-game-1",
+      "split": "test",
+      "packet": "packet.json",
+      "observations": "observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "visible-positioning",
+      "group": "synthetic-game-2",
+      "split": "test",
+      "packet": "position_packet.json",
+      "observations": "position_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    }
+  ]
+}

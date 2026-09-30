@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-position",
+  "observations": [
+    {
+      "id": "obs-position",
+      "game_ms": 295000,
+      "statement": "Fabricated fixture: Ahri is outside her turret with low visible health. Akali is visible directly ahead. Ahri's turret and the route back to it are visible behind her. No recall channel is visible.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-295000"]
+    }
+  ],
+  "unknowns": ["Synthetic fixture, not real gameplay. Cooldowns and off-screen enemies are unknown."]
+}

@@ -11,6 +11,98 @@ demo (UI agent). Change this file first, then the code.
   ms elsewhere). `*_s` are seconds. Rates and shares are 0–1 floats, never percentages.
 - `null` means "not known", never zero. Render it as "–", not "0".
 
+## Local model artifacts (v1; CLI, not HTTP routes)
+
+`coach.contracts` defines three strict JSON contracts, exportable with
+`python -m coach.harness schema packet|observations|review`.
+
+- **packet**: one moment's opaque ID, patch/champions, start and decision game-clock
+  timestamps, sync status, bounded kill events, selected frames, focus and selected
+  knowledge. No match ID, player identifiers, local absolute paths, raw API JSON,
+  outcomes or full-match history. Frame filenames are relative to `packet.json`.
+- **observations**: the same moment ID, model-observed statements with game-clock
+  timestamps and evidence references, plus explicit unknowns. Model observations
+  are never automatically marked human-verified.
+- **review**: the same moment ID, assessment (`reviewable` or `needs_more_evidence`),
+  cited observations/hypotheses, an optional alternative with tradeoff and citations,
+  optional practice focus, and missing evidence. Insufficient evidence means no
+  alternative or practice focus is emitted.
+
+All packet evidence is within `[start_ms, decision_ms]`, with a maximum 60-second
+window, 8 frames, 12 events and 4 knowledge snippets. Knowledge must match the
+packet patch or be explicitly `general`. The harness validates types, unknown
+fields, bounds, IDs and cross-references. It enforces a 24,000-character text
+request budget (including prompts and output schema), plus separate image limits;
+this is a workload cap, not an exact model token count. Each call has exactly a
+system message and one user message. No conversation IDs or history are carried.
+
+The local client uses `/v1/chat/completions` with JSON-schema response format,
+only on literal loopback addresses. It disables HTTP proxies and redirects.
+No credentials are read and no cloud client is implemented by this harness.
+Whitelisted packet fields remove raw identifier fields; arbitrary free text still
+needs a separate privacy check before cloud transmission.
+
+## Evaluation artifacts (v1; CLI, not HTTP routes)
+
+`coach.eval.DATASET` is the executable dataset schema; see the fabricated example
+`coach/examples/eval_dataset.json`. All paths are relative to the dataset directory
+and cannot escape it, including through symlinks. Each case has:
+
+```json
+{
+  "id": "case-1", "group": "game-alias-1", "split": "test",
+  "packet": "moment-1/packet.json", "observations": "moment-1/observations.json",
+  "expected_assessment": null, "cloud_approved_sha256": null
+}
+```
+
+The root has `schema_version: 1`, `id`, `synthetic` and `cases`. Case IDs are unique;
+all cases in a group use the same `dev`/`test` split. Gold labels, grouping, paths
+and privacy approvals are never passed to a model. A coaching comparison uses
+identical packet/observation text across providers, with frame metadata removed.
+Local vision requests retain selected frames and stay loopback-only.
+
+Runs contain `run.json` (dataset/request fingerprints, configuration, runtime and
+dated pricing), hashed per-case files (status, result, latency, usage, served model,
+cost reservation/estimate), and `report.json`. Status is `pending`, `ok` or `failed`;
+selected cases without files are reported as `not_run`. Reservation precedes the
+request. Resuming skips all existing attempts. A lock prevents concurrent writers;
+after an interrupted run, inspect pending cases before manually removing a stale
+`.lock`. Changing model/prompt/evidence/configuration requires a new directory.
+
+`ratings.json` binds human 0–2 scores to the run configuration, case request hash
+and saved result. Unrated cases remain null, not zero. Coaching and vision have
+separate five-item rubrics. Comparisons require identical cases/split/task; structural
+validity and expected-assessment agreement do not establish factual correctness.
+
+`coach.cloud` is separate from the local harness. It permits only text-only
+GPT-6.1 Sol Responses requests to fixed OpenAI HTTPS, with `store:false`, fresh
+system/user context, no tools/history/media, bounded output, and no redirects,
+proxies or automatic retries. `preview-cloud` prints exact text and its canonical
+SHA-256. A human must check every text field for identifiers before putting that
+hash in the case. Obvious private markers/paths/URLs are rejected automatically;
+the hash records approval, not factual verification or comprehensive anonymisation.
+An explicit positive budget is required; conservative allocations control whether
+the next request is started. Usage-based costs are estimates; errors may have
+unknown billing. Failed/incomplete/invalid output is recorded without model text.
+
+`coach.event_eval.TIMELINE` is a separate dense-action contract:
+
+```json
+{
+  "schema_version": 1, "moment_id": "moment-alias-1", "start_ms": 0, "decision_ms": 30000,
+  "events": [{"label": "charm_cast", "actor": "self", "game_ms": 5000}]
+}
+```
+
+Both labelled and predicted timelines have the same moment ID and bounded
+predecision window (at most 60 seconds, 10,000 actions). Exact label/actor plus a configurable timestamp
+tolerance defines one-to-one matches; duplicate predictions cannot inflate recall.
+Reports include TP/FP/FN, precision/recall/F1, per-label counts and mean absolute
+timing error on matches. Empty denominators return null. Matching maximises count
+using earliest compatible timestamps; timing error is not a minimum-error assignment.
+This scorer does not extract events or convert prose into canonical labels.
+
 Status legend: **current** = in `review_app.py` on `foundation`; **new** = added on
 `core/phase1`.
 

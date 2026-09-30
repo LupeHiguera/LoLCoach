@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-position",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Akali",
+  "start_ms": 280000,
+  "decision_ms": 295000,
+  "sync_verified": true,
+  "focus": "Deaths and positioning; fabricated test situation",
+  "frames": [
+    {"id": "frame-280000", "game_ms": 280000, "image_file": "frame-280000.png"},
+    {"id": "frame-295000", "game_ms": 295000, "image_file": "frame-295000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

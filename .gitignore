@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+.env.local
 .envrc
 .venv
 env/
@@ -219,7 +220,22 @@ __marimo__/
 
 # LoLCoach local data (contains other players' identifiers) and IDE state
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 data/
+# Gameplay recordings and audio must remain local, even outside data/.
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.aac
 .vs/
 .idea/
 # export_demo.py output built from real matches; review before publishing
