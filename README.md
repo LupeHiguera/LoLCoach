@@ -74,6 +74,11 @@ On the Windows gaming PC:
 5. After the match, use Fetch new with a valid Riot key, then open the match to
    link its saved recording. Check that Jump to review start agrees with the
    visible game clock. The current OBS clock offset is approximate.
+   To check a clip: `death_clip_s` in the manifest is where the death should be. Pause
+   there and read the game clock. If it differs from the death time (`death_game_ms`),
+   the correct offset is `offset_s + (expected − shown)` in seconds, e.g. expecting
+   5:00 and seeing 4:58 gives `offset_s + 2`. Rerun with `--video` and that `--offset`
+   into a new `--output`.
 6. Install [FFmpeg](https://ffmpeg.org/download.html) with both `ffmpeg` and
    `ffprobe` on PATH. These are external executables, not Python dependencies.
    Extract clips using the imported match ID:
@@ -153,15 +158,22 @@ FFmpeg to extract only frames at/before that decision. It publishes the bundle o
 after every frame succeeds. All outputs preserve existing files; choose new paths
 when rerunning. Local server default: `http://127.0.0.1:1234/v1`, overridable with
 `--base-url`. Only literal loopback HTTP addresses are accepted. Proxies, redirects,
-cloud URLs, credentials and automatic retries are disabled. A model timeout is 60 s;
-incomplete or invalid responses are rejected before saving.
+cloud URLs, credentials and automatic retries are disabled. Defaults are a 300 s
+timeout and 8192 output tokens (`--timeout-s`, `--max-tokens`). Thinking models such
+as Qwen3.8 reason at high effort by default and can exhaust smaller limits;
+`--reasoning-effort low|medium|high` is passed through as the OpenAI-compatible field,
+but whether your runtime honours it is unverified. Incomplete or invalid responses
+are rejected before saving, with the `finish_reason` in the error.
 
 JSON contracts and cross-reference checks live in `coach/contracts.py`:
 
 - `packet.json`: opaque moment ID, patch/champions, bounded events/frames, sync
   status, focus and selected knowledge. No win/loss, match ID, raw API JSON or history.
 - `observations.json`: visible statements, frame references/timestamps and unknowns.
-  Every model statement stays labelled `model_observed`; this is not human verification.
+  Every model statement is labelled `model_observed`; a model can never output
+  `human_verified`. After checking a statement against the footage yourself, set
+  `verification` to `human_verified` (or write your own with `source: "human"`).
+  The review prompt treats only those as checked.
 - `review.json`: cited observations/hypotheses, at most one alternative with its
   tradeoff, and a practice focus. `needs_more_evidence` requires missing evidence
   and cannot emit an alternative or practice focus.
@@ -219,13 +231,13 @@ Copy the structure of `coach/examples/eval_dataset.json`: each case has a unique
 `observations` paths, nullable `expected_assessment`, and nullable
 `cloud_approved_sha256`. Keep every moment from one game in the same split. Labels
 and expected assessments never enter model input. Keep test games out of prompt
-tuning. Use human-checked evidence first to isolate coaching; compare ingestion
+tuning. Use human-checked evidence (`human_verified`) first to isolate coaching; compare ingestion
 quality separately before allowing its errors to contaminate the coach comparison.
 
 With a local OpenAI-compatible runtime already serving a downloaded model:
 
 ```sh
-python -m coach.eval run --dataset data/evals/moments/dataset.json --model LOCAL_MODEL_A --output data/evals/local-a --runtime-info coach/examples/home_runtime.json
+python -m coach.eval run --dataset data/evals/moments/dataset.json --model LOCAL_MODEL_A --output data/evals/local-a --runtime-info coach/examples/home_runtime.json --reasoning-effort low
 python -m coach.eval run --dataset data/evals/moments/dataset.json --model LOCAL_MODEL_B --output data/evals/local-b --runtime-info coach/examples/home_runtime.json
 python -m coach.eval compare --dataset data/evals/moments/dataset.json --runs data/evals/local-a data/evals/local-b
 python -m coach.eval rating-sheet --dataset data/evals/moments/dataset.json --run data/evals/local-a --output data/evals/local-a/ratings.json
@@ -243,7 +255,9 @@ prompt, model, evidence or runtime configuration requires another directory.
 
 Each run saves `run.json`, hashed per-case result files and `report.json`. Reports
 show case/game counts, failures, assessment agreement, median latency, usage and
-estimated cloud cost. Contract pass rates and assessment agreement are screening
+estimated cloud cost. Rates use finished attempts only (`not_run` and `pending` are
+excluded) and include a 95% Wilson interval; with a few dozen cases these are wide,
+so small differences between models are noise. Contract pass rates and assessment agreement are screening
 checks, **not factual accuracy**. Fill all five scores in `ratings.json` with
 `0` (incorrect/absent), `1` (partial), or `2` (sound), and count unsupported claims.
 The coaching rubric covers evidence, positioning, feasible advice, uncertainty and

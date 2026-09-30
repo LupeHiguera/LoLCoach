@@ -20,6 +20,18 @@ RUBRIC = ('factual_support', 'positioning_reasoning', 'action_feasibility',
           'uncertainty', 'practice_usefulness')
 VISION_RUBRIC = ('visible_fact_accuracy', 'timestamp_accuracy', 'action_coverage',
                  'uncertainty', 'evidence_use')
+DEFAULT_OUTPUT_TOKENS = dict(local=harness.MAX_OUTPUT_TOKENS, openai=4096)
+Z_95 = 1.96
+
+
+def wilson_95(successes, trials):
+    """95% Wilson score interval for a rate; with few cases it is wide on purpose."""
+    if not trials:
+        return None
+    rate, spread = successes / trials, Z_95 ** 2 / trials
+    centre = (rate + spread / 2) / (1 + spread)
+    half = Z_95 * math.sqrt(rate * (1 - rate) / trials + spread / (4 * trials)) / (1 + spread)
+    return [max(0.0, centre - half), min(1.0, centre + half)]
 
 
 def dataset_fingerprint(cases):
@@ -66,11 +78,12 @@ def selected_cases(cases, split, limit):
     return selected
 
 
-def request_for(case, provider, model, task, max_output_tokens):
+def request_for(case, provider, model, task, max_output_tokens, reasoning_effort=None):
     if task == 'observe':
         if provider != 'local':
             raise ValueError('Vision benchmarks are local-only; never send images to OpenAI')
-        return harness.build_request(task, case['packet'], model, root=case['root'])
+        return harness.build_request(task, case['packet'], model, root=case['root'],
+                                     max_tokens=max_output_tokens, reasoning_effort=reasoning_effort)
     context = cloud.checked_text(case['packet'], case['observations'])
     if provider == 'openai':
         if model != cloud.MODEL:
@@ -78,7 +91,8 @@ def request_for(case, provider, model, task, max_output_tokens):
         if case['spec']['cloud_approved_sha256'] != cloud.fingerprint(context):
             raise ValueError('Cloud text needs human privacy review; use preview-cloud and approve its exact hash')
         return cloud.make_request(context, max_output_tokens)
-    payload = harness.build_request(task, case['packet'], model, case['observations'])
+    payload = harness.build_request(task, case['packet'], model, case['observations'],
+                                    max_tokens=max_output_tokens, reasoning_effort=reasoning_effort)
     payload['messages'][1]['content'][0]['text'] = json.dumps(context, ensure_ascii=False)
     return payload
 
@@ -90,6 +104,7 @@ def result_path(run_dir, case_id):
 def save_json(path, value):
     """Replace a local ledger atomically so a crash does not erase the previous reservation."""
     temporary = path.with_suffix(path.suffix + '.tmp')
+    temporary.unlink(missing_ok=True)  # left by a crash; the run lock guarantees one writer
     with temporary.open('x', encoding='utf-8') as handle:
         json.dump(value, handle, ensure_ascii=False, indent=2)
         handle.write('\n')
@@ -98,14 +113,15 @@ def save_json(path, value):
 
 def validate_result(result, task, case):
     if task == 'observe':
-        contracts.validate_observations(result, case['packet'])
+        contracts.validate_observations(result, case['packet'], model_output=True)
     else:
         contracts.validate_review(result, case['packet'], case['observations'])
 
 
 def run_dataset(path, run_dir, provider, model, base_url=harness.DEFAULT_BASE_URL,
                 split='test', limit=None, task='review', budget_usd=None,
-                max_output_tokens=4096, runtime_info=None):
+                max_output_tokens=None, runtime_info=None, timeout_s=harness.MODEL_TIMEOUT_S,
+                reasoning_effort=None):
     """Save every attempted case; resuming never repeats a paid, failed or uncertain request."""
     if provider not in ('local', 'openai') or task not in ('review', 'observe'):
         raise ValueError('Unsupported provider or task')
@@ -113,6 +129,12 @@ def run_dataset(path, run_dir, provider, model, base_url=harness.DEFAULT_BASE_UR
         harness.local_endpoint(base_url)
     elif task != 'review':
         raise ValueError('OpenAI benchmarks accept text-only reviews')
+    if provider == 'openai' and reasoning_effort is not None:
+        raise ValueError('The OpenAI reference always uses low reasoning effort')
+    if not isinstance(timeout_s, (int, float)) or not 1 <= timeout_s <= 3600:
+        raise ValueError('Timeout must be 1..3600 seconds')
+    if max_output_tokens is None:
+        max_output_tokens = DEFAULT_OUTPUT_TOKENS[provider]
     if provider == 'openai' and (budget_usd is None or not math.isfinite(budget_usd) or budget_usd <= 0):
         raise ValueError('A paid run requires an explicit positive --budget-usd')
     data, all_cases = load_dataset(path)
@@ -126,15 +148,20 @@ def run_dataset(path, run_dir, provider, model, base_url=harness.DEFAULT_BASE_UR
                   synthetic=data['synthetic'], task=task, provider=provider, model=model,
                   endpoint=base_url if provider == 'local' else cloud.ENDPOINT,
                   split=split, limit=limit, budget_usd=budget_usd, max_output_tokens=max_output_tokens,
-                  runtime_info=info, pricing=cloud.PRICING if provider == 'openai' else None)
+                  runtime_info=info, pricing=cloud.PRICING if provider == 'openai' else None,
+                  timeout_s=timeout_s, reasoning_effort=reasoning_effort)
     # Preflight every case before any network request or ledger mutation.
-    requests = [request_for(case, provider, model, task, max_output_tokens) for case in cases]
+    requests = [request_for(case, provider, model, task, max_output_tokens, reasoning_effort) for case in cases]
     config['requests_sha256'] = cloud.fingerprint(requests)
     key = None
     run_dir.mkdir(parents=True, exist_ok=True)
     lock = run_dir / '.lock'
-    with lock.open('x', encoding='utf-8'):
-        pass
+    try:
+        with lock.open('x', encoding='utf-8'):
+            pass
+    except FileExistsError:
+        raise ValueError(f'{lock} exists: another run is writing here, or a previous run was '
+                         'interrupted. Inspect pending cases, then delete the lock by hand') from None
     try:
         manifest = run_dir / 'run.json'
         if manifest.exists():
@@ -168,7 +195,7 @@ def run_dataset(path, run_dir, provider, model, base_url=harness.DEFAULT_BASE_UR
             start = time.perf_counter()
             try:
                 if provider == 'local':
-                    response = harness.complete(base_url, request, with_metadata=True)
+                    response = harness.complete(base_url, request, with_metadata=True, timeout_s=timeout_s)
                     row['usage'], row['served_model'] = response['usage'], response['served_model']
                     result = response['result']
                 else:
@@ -203,7 +230,7 @@ def report(path, run_dir):
             data['synthetic'] != config['synthetic']):
         raise ValueError('Report dataset does not match the run')
     counts = dict(ok=0, failed=0, pending=0, not_run=0)
-    latencies, matched, labelled, costs, reserved = [], 0, 0, [], 0.0
+    latencies, matched, labelled, labelled_ok, costs, reserved = [], 0, 0, 0, [], 0.0
     unknown_cost = 0
     for case in cases:
         target = result_path(run_dir, case['spec']['id'])
@@ -226,13 +253,20 @@ def report(path, run_dir):
             labelled += 1
             if row['status'] == 'ok':
                 validate_result(row['result'], config['task'], case)
+                labelled_ok += 1
                 matched += row['result']['assessment'] == expected
         elif row['status'] == 'ok':
             validate_result(row['result'], config['task'], case)
+    finished = counts['ok'] + counts['failed']
     return dict(dataset=data['id'], synthetic=data['synthetic'], task=config['task'], model=config['model'],
                 selected_cases=len(cases), groups=len({c['spec']['group'] for c in cases}), counts=counts,
-                contract_pass_rate=counts['ok'] / len(cases), assessment_labelled_attempts=labelled,
-                assessment_matches=matched, assessment_match_rate=matched / labelled if labelled else None,
+                # Rates use finished attempts only; not_run and pending cases are neither passes nor failures.
+                contract_pass_rate=counts['ok'] / finished if finished else None,
+                contract_pass_ci95=wilson_95(counts['ok'], finished),
+                assessment_labelled_attempts=labelled, assessment_labelled_ok=labelled_ok,
+                assessment_matches=matched,
+                assessment_match_rate=matched / labelled_ok if labelled_ok else None,
+                assessment_match_ci95=wilson_95(matched, labelled_ok),
                 median_latency_s=statistics.median(latencies) if latencies else None,
                 estimated_cost_usd=sum(costs) if costs else None, unknown_billing_cases=unknown_cost,
                 reserved_usd=reserved, quality='Human rubric ratings required; Sol is a reference, not ground truth')
@@ -324,8 +358,10 @@ def main(argv=None):
     run.add_argument('--split', choices=('dev', 'test', 'all'), default='test')
     run.add_argument('--limit', type=int)
     run.add_argument('--budget-usd', type=float)
-    run.add_argument('--max-output-tokens', type=int, default=4096)
+    run.add_argument('--max-output-tokens', type=int, help='Default: 8192 local, 4096 OpenAI')
     run.add_argument('--runtime-info', type=Path)
+    run.add_argument('--timeout-s', type=float, default=harness.MODEL_TIMEOUT_S)
+    run.add_argument('--reasoning-effort', choices=harness.REASONING_EFFORTS, help='Local runs only')
     for name in ('report', 'rating-sheet', 'score-ratings'):
         command = sub.add_parser(name)
         command.add_argument('--run', type=Path, required=True)
@@ -355,7 +391,8 @@ def main(argv=None):
             info = harness.read_json(args.runtime_info) if args.runtime_info else None
             harness.write_output(run_dataset(args.dataset, args.output, args.provider, args.model, args.base_url,
                                             args.split, args.limit, args.task, args.budget_usd,
-                                            args.max_output_tokens, info))
+                                            args.max_output_tokens, info, args.timeout_s,
+                                            args.reasoning_effort))
         elif args.command == 'report':
             harness.write_output(report(args.dataset, args.run))
         elif args.command == 'rating-sheet':

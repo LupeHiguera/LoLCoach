@@ -106,6 +106,8 @@ to positioning, not only aim. That is a lead to check against video, not a concl
 - [ ] **Clock OCR** (PaddleOCR) → offset only for recordings made outside `recorder.py`
 - [x] CLI death clip extraction: up to 60 s before and 10 s after, with evidence manifest
 - [ ] Verify OBS capture, browser playback and clock sync on a real Windows recording
+      (first session 2026-09-30; rehearsed on the Mac with a synthetic MKV whose frames show
+      the game second: offset → clip → frame lined up to the second)
 - [ ] Extend clip extraction to other flagged moments
 - [ ] Review app plays those clips inline
 
@@ -139,6 +141,10 @@ to positioning, not only aim. That is a lead to check against video, not a concl
 - [ ] Live Sol reference sample (offline adapter verified; live model access unverified)
 - [ ] Separate Claude client for sanitised text-only coaching
 - [ ] Native-video/dense detector ingestion adapters and human-labelled real action timelines
+- [ ] Blind human ratings: one sheet mixing runs under anonymous labels (per-run sheets reveal the model)
+- [ ] Add pre-decision Riot timeline facts to packets (per-minute positions, level, gold,
+      items, wards, objectives); today the coach sees only kill events and model observations
+- [ ] Non-death control moments, so the coach can be checked for saying "this was fine"
 - [ ] Output: cited, hypothesis-labelled review plus a proposed focus. You accept it into
       the `focus` table.
 

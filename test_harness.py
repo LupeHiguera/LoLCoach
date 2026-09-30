@@ -124,7 +124,32 @@ class ContractTests(unittest.TestCase):
             else:
                 o['observations'][0]['id'] = p['frames'][0]['id']
             with self.subTest(change=change), self.assertRaises(ValueError):
-                contracts.validate_observations(o, p)
+                contracts.validate_observations(o, p, model_output=True)
+
+    def test_stored_evidence_can_be_human_verified_but_model_output_cannot(self):
+        p = packet()
+        o = observations(p)
+        o['observations'][0]['verification'] = 'human_verified'
+        contracts.validate_observations(o, p)
+        with self.assertRaises(ValueError):
+            contracts.validate_observations(o, p, model_output=True)
+        o['observations'][0]['source'] = 'human'
+        contracts.validate_observations(o, p)
+        o['observations'][0]['verification'] = 'model_observed'
+        with self.assertRaisesRegex(ValueError, 'human_verified'):
+            contracts.validate_observations(o, p)
+
+    def test_output_limit_and_reasoning_effort_are_explicit(self):
+        p = packet()
+        payload = harness.build_request('review', p, 'local-test', observations(p))
+        self.assertEqual(payload['max_tokens'], harness.MAX_OUTPUT_TOKENS)
+        self.assertNotIn('reasoning_effort', payload)
+        payload = harness.build_request('review', p, 'local-test', observations(p),
+                                        max_tokens=4096, reasoning_effort='low')
+        self.assertEqual((payload['max_tokens'], payload['reasoning_effort']), (4096, 'low'))
+        for bad in (dict(max_tokens=10), dict(reasoning_effort='xhigh')):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                harness.build_request('review', p, 'local-test', observations(p), **bad)
 
     def test_uncertainty_cannot_be_published_as_advice(self):
         p = packet()
@@ -293,7 +318,7 @@ class LocalServerTests(unittest.TestCase):
     def test_truncated_answer_is_rejected(self):
         self.mode = 'truncated'
         p = packet()
-        with self.assertRaisesRegex(ValueError, 'complete answer'):
+        with self.assertRaisesRegex(ValueError, "finish_reason='length'"):
             harness.complete(self.base, harness.build_request('review', p, 'local-test', observations(p)))
 
     def test_invalid_model_output_is_not_saved_by_cli(self):

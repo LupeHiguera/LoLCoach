@@ -41,11 +41,20 @@ PACKET = obj(schema_version=choice(1), moment_id=ID, patch=text(64, True),
              sync_verified=dict(type='boolean'), focus=text(500),
              frames=array(FRAME, MAX_FRAMES), events=array(EVENT, MAX_EVENTS),
              knowledge=array(KNOWLEDGE, 4))
-OBSERVATIONS = obj(schema_version=choice(1), moment_id=ID,
-                   observations=array(obj(id=ID, game_ms=MS, statement=text(),
-                                          source=choice('local_vision'),
-                                          verification=choice('model_observed'), evidence_refs=REFS), 16),
-                   unknowns=array(text(300), 12))
+
+
+def observations_schema(sources, verifications):
+    return obj(schema_version=choice(1), moment_id=ID,
+               observations=array(obj(id=ID, game_ms=MS, statement=text(),
+                                      source=choice(*sources),
+                                      verification=choice(*verifications), evidence_refs=REFS), 16),
+               unknowns=array(text(300), 12))
+
+
+# A model may only produce unverified vision observations.
+OBSERVATIONS = observations_schema(('local_vision',), ('model_observed',))
+# Stored evidence may also record that the player checked a statement against the footage.
+STORED_OBSERVATIONS = observations_schema(('local_vision', 'human'), ('model_observed', 'human_verified'))
 ALTERNATIVE = obj(action=text(), tradeoff=text(500), evidence_refs=REFS)
 REVIEW = obj(schema_version=choice(1), moment_id=ID,
              assessment=choice('reviewable', 'needs_more_evidence'),
@@ -120,9 +129,10 @@ def validate_packet(packet):
         raise ValueError('Moment exceeds the text budget')
 
 
-def validate_observations(observations, packet):
+def validate_observations(observations, packet, model_output=False):
+    """Model output must stay model_observed; stored evidence may be human_verified."""
     validate_packet(packet)
-    validate(observations, OBSERVATIONS)
+    validate(observations, OBSERVATIONS if model_output else STORED_OBSERVATIONS)
     if observations['moment_id'] != packet['moment_id']:
         raise ValueError('Observations belong to another moment')
     frames = {f['id']: f['game_ms'] for f in packet['frames']}
@@ -133,6 +143,8 @@ def validate_observations(observations, packet):
         refs = observation['evidence_refs']
         if len(refs) != len(set(refs)) or not set(refs) <= frames.keys():
             raise ValueError('Observation cites unknown or duplicate frames')
+        if observation['source'] == 'human' and observation['verification'] != 'human_verified':
+            raise ValueError('A human-written observation must be marked human_verified')
         times = [frames[ref] for ref in refs]
         if not min(times) <= observation['game_ms'] <= max(times):
             raise ValueError('Observation time is not supported by its cited frames')
