@@ -7,7 +7,7 @@ from pathlib import Path
 
 from export_demo import ScrubError, build, check_scrubbed, write
 from fetch_matches import SCHEMA, store_match, store_timeline
-from review_app import ReviewStore
+from review_data import ReviewStore
 
 ME = "my-puuid-0000-aaaa"
 SECRETS = {ME, "enemy-puuid-1111-bbbb", "ally-puuid-2222-cccc", "MySecretName", "NA9",

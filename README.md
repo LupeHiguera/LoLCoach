@@ -4,49 +4,82 @@ Pulls my recent Ahri/Zoe games and their timelines from the Riot API into a loca
 
 ## Setup
 
-1. `pip install requests`
+1. Create/enter the environment below, then `python -m pip install -r requirements.txt`.
 2. Get a development key at https://developer.riotgames.com (expires every 24 hours).
 3. Copy `.env.example` to `.env` and fill in your key and Riot ID.
 4. `python fetch_matches.py --count 20` (add `--queue 420` for ranked solo/duo only)
 
 Re-running only downloads new matches. `--summary-only` prints the lane table without calling the API.
 
-## Local review app
+## Windows pipeline setup
 
-Run `python review_app.py` (Python 3.10+, standard library only), then open
-http://127.0.0.1:8765 (on Windows, `py review_app.py` works if `python` opens the Microsoft
-Store). Keep the terminal running; Ctrl+C stops the app.
+The review UI has been removed from this checkout. CLI clips, model evaluation and
+recording use `review_data.py` for shared storage, without starting a web server.
+`league.db` is read-only; notes and recording links belong in ignored `reviews.db`.
 
-The app opens ranked solo/duo by default and lets you filter Ahri/Zoe mid games by
-champion, queue, and result. Review gold/XP/lane-CS differences over the full match,
-choose a death, sampled gold deficit, farm gap, or any timeline snapshot, and save
-your observation and a possible next action. Set one practice goal in Today's focus.
+Python 3.10+ is sufficient for the current pipelines; PyTorch is not required.
+On this PC Python is installed under `%LOCALAPPDATA%/Programs/Python/Python313`.
+For a new environment, run these commands in PowerShell from the repository root:
 
-Optional video selection uses a local browser object URL: footage is not uploaded.
-Set the recording time (seconds) corresponding to game 0:00 and use Jump to review
-start. Choose the recording again after a reload or match switch. Cuts or pauses
-require manually adjusting the offset. Browser codec support varies (MP4/WebM recommended).
+```powershell
+& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\scripts\install-ffmpeg.ps1
+. .\scripts\enter-local.ps1
+python -m unittest -v
+```
 
-`league.db` is opened read-only. Notes and the current focus persist in the separate,
-git-ignored `reviews.db`; back up both files to keep your imports and reviews.
-Use `--db PATH`, `--notes PATH`, or `--port 8766` to override defaults.
+For an existing setup, only dot-source `enter-local.ps1` in each new terminal.
+It puts the virtual environment, project-local FFmpeg and existing LM Studio CLI
+on that terminal's PATH. It does not change the system PATH or Windows security
+settings. The FFmpeg installer uses the distributor linked by ffmpeg.org and
+verifies its published SHA-256 checksum. Tools and footage live under ignored `data/`.
+Symlink escape tests report a skip when the Windows account cannot create symlinks;
+other file, image-size, privacy and timing checks still run.
 
-Review prompts are deliberately limited:
+OBS must be closed for the one-time WebSocket setup. This preserves its existing
+password (or generates one), enables authentication on port 4455, writes the same
+password to ignored `.env`, and saves previous settings under `data/setup-backups/`:
 
-- Death timestamps are events; the preceding minute is context to inspect.
-- The first sampled gold difference of -300 or below is a configurable-in-code
-  review threshold, not evidence of a mistake or the cause of a loss.
-- Farm gaps mean no increase in lane CS for at least two minutes after 2:00.
-  Missing snapshots break a gap; jungle CS is excluded. They do not prove missed
-  last hits, roaming, or lost opportunity.
-- Gold/XP/CS differences use matching timestamps for the assigned lane opponent;
-  role swaps and later team play need interpretation. Missing comparisons stay missing.
-- Causes are user-entered hypotheses; saved reviews identify whether evidence was
-  timeline data, a recording, or recollection. The UI does not run AI coaching;
-  the optional recorder uses the local game-clock endpoint only to start/stop capture
-  and estimate sync. A separate CLI model harness is described below.
+```powershell
+python scripts/configure_obs.py --config-root "$env:APPDATA\obs-studio"
+```
 
-Verify with `python -m unittest -v`.
+Start OBS, then run:
+
+```powershell
+python -m coach.capture_setup --test
+python recorder.py --check-obs
+```
+
+Capture setup creates a separate **LoLCoach** profile and **LoLCoach game** scene,
+using Window Capture with Windows Graphics Capture for `League of Legends.exe`.
+It retains the current video dimensions/FPS, uses NVENC H.264 in MKV, and saves to
+`data/recordings/`. The test records generated colours with audio temporarily muted;
+it restores the game scene and previous mute states. Other profiles/scenes remain
+available. This checks OBS start/stop and video decoding, not actual gameplay capture.
+
+The 2026-10-01 Windows check produced a valid 3840x2160, 60 fps H.264 recording and
+passed local text and vision JSON transport. Inputs were synthetic; model quality,
+real game-window visibility and game-clock alignment remain unverified. Local runs
+are under `data/evals/windows-smoke-1`, `windows-vision-smoke-3` and `synthetic-capture`.
+The 8B text model matched one of two fabricated assessment labels; that is not a
+coaching benchmark. The small vision model initially reused a frame ID as an
+observation ID, which validation rejected; the prompt now distinguishes the IDs.
+
+For model tests, keep LM Studio's API server on loopback and load an existing model:
+
+```powershell
+lms server start --port 1234 --bind 127.0.0.1
+lms load meta-llama-3.1-8b-instruct@q4_k_m --identifier lolcoach-smoke --context-length 16384 --gpu max
+python -m coach.eval run --dataset coach/examples/eval_dataset.json --model lolcoach-smoke --limit 2 --output data/evals/local-smoke-new
+```
+
+For observations use a vision-capable model with its projector, e.g. the already
+installed `mistralai/ministral-3-3b`. These small models check plumbing; choose and
+benchmark gameplay models only after collecting labelled footage. Runtime GPU
+allocation is automatic for this smoke test; per-GPU layer placement and CPU offload
+have not been measured. Record those settings for actual comparisons.
 
 ## First video milestone: death clips
 
@@ -58,22 +91,24 @@ anonymised; keep the output local. Clip extraction does not run a model.
 
 On the Windows gaming PC:
 
-1. Configure an OBS scene using Window Capture for the game. Keep the full HUD,
+1. First use Practice Tool to verify the **LoLCoach game** scene captures the game
+   window and the full HUD. Practice Tool may not appear in Match-V5; use a normal
+   recorded match for database linking and death clips. Configure Window Capture for the game. Keep the full HUD,
    minimap and game clock visible, without resizing or cropping them. Start with
    native resolution at 60 fps and NVENC H.264; check a short test recording for
    legible HUD text and dropped frames before recording ranked games.
 2. Save recordings under `data/recordings/`. OBS recommends MKV for recovery after
-   interrupted recordings; remux to MP4 in OBS if the review browser cannot play it.
+   interrupted recordings; remux to MP4 in OBS when an MP4 is needed.
    See [OBS's recording guide](https://obsproject.com/kb/standard-recording-output-guide).
 3. In OBS, enable the WebSocket server on port 4455, use a password, and put that
    password in `.env` as `OBS_WS_PASSWORD`. The existing recorder expects OBS at
    `C:\Program Files\obs-studio\bin\64bit\obs64.exe`.
-4. Run `python review_app.py` and arm Auto-record before a match. Leave the app
-   process running through the end. The recorder is off by default, polls only
+4. Run `python recorder.py --arm` before a match. Leave that terminal
+   running through the end; Ctrl+C stops any capture owned by the recorder. The recorder is off by default, polls only
    the local official game-clock endpoint, and displays no in-game advice.
-5. After the match, use Fetch new with a valid Riot key, then open the match to
-   link its saved recording. Check that Jump to review start agrees with the
-   visible game clock. The current OBS clock offset is approximate.
+5. After a normal match, run `python fetch_matches.py --count 20` with a valid
+   Riot key, then `python recorder.py --link` to link its saved recording. Check
+   the recording against the visible game clock. The current OBS clock offset is approximate.
    To check a clip: `death_clip_s` in the manifest is where the death should be. Pause
    there and read the game clock. If it differs from the death time (`death_game_ms`),
    the correct offset is `offset_s + (expected − shown)` in seconds, e.g. expecting

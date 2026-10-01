@@ -13,7 +13,7 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
-from review_app import connect, kill_feed
+from review_data import connect, kill_feed
 
 BEFORE_S = 60.0
 AFTER_S = 10.0
@@ -43,7 +43,7 @@ def linked_video(notes_path, match_id):
             WHERE match_id=? AND status='linked' AND path IS NOT NULL
             ORDER BY id DESC LIMIT 1""", (match_id,)).fetchone()
     if row is None:
-        raise ValueError("No finished recording linked. Open the match in the review app "
+        raise ValueError("No finished recording linked. Run recorder.py --link "
                          "after fetching, or supply --video and --offset")
     return Path(row['path']).resolve(), row['offset_s']
 

@@ -1,7 +1,7 @@
 # LoLCoach Plan
 
 A personal, local-first, TOS-safe coach for Ahri mid. It builds on the existing fetcher,
-CLI and review app. Last updated 2026-09-29.
+CLI and review app. Last updated 2026-10-01.
 
 ## Why
 - Returning to ranked on Ahri mid; struggling with decisions and Charm (E) accuracy.
@@ -42,6 +42,17 @@ CLI and review app. Last updated 2026-09-29.
 _TBD: more constraints from the user go here._
 
 ## Where we are
+- [x] Windows setup: project venv/requests, FFmpeg/FFprobe, authenticated OBS control,
+      loopback LM Studio, synthetic 4K/60 H.264 capture and local vision/text transport
+- [x] CLI pipelines decoupled from the removed UI via `review_data.py`; recorder CLI
+      can check OBS, arm capture and link saved recordings
+- [ ] First real game-window capture and manual clock-sync check in Practice Tool;
+      then record a normal match for Riot match linking and death-clip review
+
+The UI files were intentionally removed locally during Windows checkout setup.
+The CLI/storage path is active; historical UI milestones below describe prior work.
+Synthetic tests establish transport and schema checks, not coaching quality.
+
 - [x] `fetch_matches.py`: Riot API → `league.db` (matches, frames, events, raw JSON)
 - [x] `analyze.py`: matchups, backs, roams, death map
 - [x] `review_app.py`: local review UI, moments, notes, focus, manual video sync
@@ -55,10 +66,11 @@ _TBD: more constraints from the user go here._
 - [x] `coach/eval.py`: portable datasets, cached attempts, comparisons, human ratings and text-only Sol adapter (offline verified; live API unverified)
 - [x] `coach/event_eval.py`: dense action timeline scoring, independent of sparse-frame caps
 
-**Current direction (2026-09-29):** no footage collected yet. First focus is deaths
-and positioning. Build and test portable code on the Mac, then verify OBS capture
-and clock alignment on the Windows PC. Start with a small set of recorded death
-clips and human-checked observations before adding video models or training.
+**Current direction (2026-10-01):** Windows setup and synthetic capture/model smoke
+checks are complete. No gameplay footage has been validated. First focus remains
+deaths and positioning: verify the actual Window Capture source and clock alignment,
+then collect a small set of death clips with human-checked observations. Keep dense
+video models and training behind that milestone.
 
 **First findings** (21 Ahri, 7 Lulu games; small sample):
 

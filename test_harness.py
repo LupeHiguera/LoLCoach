@@ -1,5 +1,6 @@
 import base64
 import copy
+import errno
 import io
 import json
 import os
@@ -215,8 +216,18 @@ class RequestTests(unittest.TestCase):
             image.write_bytes(b'x' * (harness.MAX_IMAGE_BYTES + 1))
             with self.assertRaisesRegex(ValueError, '1 MiB'):
                 harness.image_data(root, frame)
-            image.unlink()
-            image.symlink_to(root.parent / 'outside.png')
+
+    def test_image_symlink_cannot_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            frame = packet()['frames'][0]
+            image = root / frame['image_file']
+            try:
+                image.symlink_to(root.parent / 'outside.png')
+            except OSError as exc:
+                if exc.errno in (errno.EPERM, errno.EACCES, errno.ENOSYS) or getattr(exc, 'winerror', None) == 1314:
+                    self.skipTest('This account cannot create symlinks')
+                raise
             with self.assertRaisesRegex(ValueError, 'escapes'):
                 harness.image_data(root, frame)
 

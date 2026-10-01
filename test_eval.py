@@ -1,4 +1,5 @@
 import copy
+import errno
 import io
 import json
 import shutil
@@ -92,7 +93,12 @@ class DatasetTests(unittest.TestCase):
 
     def test_dataset_paths_cannot_escape_through_symlinks(self):
         (self.root / 'secret.json').write_text('{}')
-        (self.dataset.parent / 'escape.json').symlink_to(self.root / 'secret.json')
+        try:
+            (self.dataset.parent / 'escape.json').symlink_to(self.root / 'secret.json')
+        except OSError as exc:
+            if exc.errno in (errno.EPERM, errno.EACCES, errno.ENOSYS) or getattr(exc, 'winerror', None) == 1314:
+                self.skipTest('This account cannot create symlinks')
+            raise
         self.change_dataset(lambda d: d['cases'][0].update(packet='escape.json'))
         with self.assertRaisesRegex(ValueError, 'escapes'):
             evaluation.load_dataset(self.dataset)

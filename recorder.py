@@ -11,6 +11,7 @@ It never shows anything in game, never touches the LCU, and reads no input or me
 It only talks to 127.0.0.1.
 """
 import base64
+import argparse
 import hashlib
 import json
 import os
@@ -31,6 +32,8 @@ OBS_EXE = Path(r"C:\Program Files\obs-studio\bin\64bit\obs64.exe")
 OBS_ARGS = ["--minimize-to-tray", "--disable-shutdown-check"]
 OBS_HOST, OBS_PORT = "127.0.0.1", 4455
 OBS_TIMEOUT_S = 3.0
+OBS_START_TIMEOUT_S = 10.0
+OBS_START_POLL_S = 0.1
 # Don't launch OBS again this soon after a launch; it takes a few seconds to open.
 OBS_LAUNCH_COOLDOWN_S = 60.0
 
@@ -230,6 +233,15 @@ class ObsClient:
                     raise ObsError(f"{request_type} failed: "
                                    f"{status.get('comment') or status.get('code')}")
                 return d.get("responseData") or {}
+
+
+def wait_for_recording(obs, timeout_s=OBS_START_TIMEOUT_S, clock=time.monotonic, sleep=time.sleep):
+    """OBS acknowledgements may precede capture; confirm active output before syncing."""
+    deadline = clock() + timeout_s
+    while not obs.request('GetRecordStatus').get('outputActive'):
+        if clock() >= deadline:
+            raise ObsError('OBS acknowledged StartRecord but capture did not become active; check output settings')
+        sleep(OBS_START_POLL_S)
 
 
 # ---------------------------------------------------------------- live client + OBS process
@@ -457,7 +469,11 @@ class Recorder:
     def _start(self, game_time):
         before = self.clock()
         try:
-            self._obs("StartRecord")
+            if not self.password:
+                raise ObsAuthError('OBS_WS_PASSWORD is not set in .env')
+            with self.obs_factory(self.password) as obs:
+                obs.request('StartRecord')
+                wait_for_recording(obs)
         except ObsAuthError as exc:
             self.auth_failed, self.error = True, str(exc)
             self._failed_row(str(exc))
@@ -501,3 +517,69 @@ class Recorder:
         with closing(self._db()) as conn, conn:
             conn.execute("UPDATE recordings SET path = ?, status = ?, error = ? WHERE id = ?",
                          (path, status, error, rec_id))
+
+
+def main(argv=None):
+    """Record from the CLI or link finished footage; no review server is required."""
+    from fetch_matches import load_dotenv
+
+    root = Path(__file__).resolve().parent
+    load_dotenv(root / '.env')
+    parser = argparse.ArgumentParser(description=__doc__)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument('--status', action='store_true', help='Read local recorder status')
+    action.add_argument('--check-obs', action='store_true', help='Verify OBS authentication and capture settings')
+    action.add_argument('--arm', action='store_true', help='Auto-record until Ctrl+C; no in-game advice')
+    action.add_argument('--link', action='store_true', help='Link saved recordings after fetching matches')
+    parser.add_argument('--notes', type=Path, default=root / 'reviews.db')
+    parser.add_argument('--db', type=Path, default=root / 'league.db')
+    args = parser.parse_args(argv)
+    if args.link:
+        from review_data import connect
+        with closing(connect(args.notes)) as notes, closing(connect(args.db, True)) as league:
+            ensure_schema(notes)
+            print(f'Linked {link_recordings(notes, league)} recording(s).')
+        return
+    rec = Recorder(args.notes)
+    if args.status:
+        print(json.dumps(rec.status(), indent=2))
+        return
+    if not rec.password:
+        parser.exit(1, 'Configure OBS_WS_PASSWORD in .env before connecting to OBS.\n')
+    if args.check_obs:
+        try:
+            with ObsClient(rec.password) as obs:
+                version = obs.request('GetVersion')
+                scene = obs.request('GetCurrentProgramScene')
+                video = obs.request('GetVideoSettings')
+                print(json.dumps(dict(obs_version=version.get('obsVersion'),
+                                      scene=scene.get('currentProgramSceneName'), video=video), indent=2))
+        except (ObsError, OSError) as exc:
+            parser.exit(1, f'OBS check failed: {exc}\n')
+        return
+    rec.set_armed(True)
+    print('Auto-record armed. Leave this terminal running through the match. Ctrl+C stops capture.')
+    previous = None
+    try:
+        while True:
+            status = rec.status()
+            # Do not print local recording paths or identifiers in routine status updates.
+            current = (status['game'], status['obs'], status.get('error'))
+            if current != previous:
+                print(f'Game: {current[0]}; OBS: {current[1]}' + (f'; {current[2]}' if current[2] else ''), flush=True)
+                previous = current
+            time.sleep(POLL_S)
+    except KeyboardInterrupt:
+        with rec.lock:
+            rec.armed = False
+            if rec.recording_id is not None:
+                rec._stop()
+            rec.stop_event.set()
+        thread = rec.thread
+        if thread is not None:
+            thread.join(OBS_TIMEOUT_S + POLL_S + 1)
+        print('Auto-record stopped.')
+
+
+if __name__ == '__main__':
+    main()

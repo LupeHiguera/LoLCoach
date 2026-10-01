@@ -10,16 +10,13 @@ import threading
 import unittest
 from contextlib import closing
 from pathlib import Path
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
 import recorder
 from fetch_matches import SCHEMA, store_match
 from recorder import (MISSES_TO_STOP, ObsAuthError, ObsClient, ObsError, Recorder, WebSocket,
                       WebSocketClosed, link_recordings, live_game_time, obs_auth)
-from review_app import ReviewStore, byte_range
+from review_data import ReviewStore
 from test_analyze import ME, match as riot_match
-from test_review_app import schema_db, serve
 
 
 # ---------------------------------------------------------------- fakes
@@ -80,6 +77,8 @@ class FakeObs:
         pass
 
     def request(self, request_type, data=None):
+        if request_type == 'GetRecordStatus':
+            return {'outputActive': self.recording}
         self.requests.append(request_type)
         if self.fail:
             raise self.fail
@@ -119,6 +118,26 @@ class AuthTests(unittest.TestCase):
         expected = base64.b64encode(hashlib.sha256(secret + b"challenge").digest()).decode()
         self.assertEqual(obs_auth("pw", "salt", "challenge"), expected)
         self.assertNotEqual(obs_auth("pw", "salt", "challenge"), obs_auth("pw2", "salt", "challenge"))
+
+
+class RecordingStartTests(unittest.TestCase):
+    def test_acknowledged_start_waits_for_active_output(self):
+        from unittest import mock
+        obs = mock.Mock()
+        obs.request.side_effect = [{'outputActive': False}, {'outputActive': True}]
+        clock = mock.Mock(side_effect=[0, 0.1])
+        sleep = mock.Mock()
+        recorder.wait_for_recording(obs, clock=clock, sleep=sleep)
+        self.assertEqual(obs.request.call_count, 2)
+        sleep.assert_called_once_with(recorder.OBS_START_POLL_S)
+
+    def test_inactive_output_times_out_without_a_sync_offset(self):
+        from unittest import mock
+        obs = mock.Mock()
+        obs.request.return_value = {'outputActive': False}
+        with self.assertRaisesRegex(ObsError, 'did not become active'):
+            recorder.wait_for_recording(obs, timeout_s=1, clock=mock.Mock(side_effect=[0, 2]),
+                                        sleep=mock.Mock())
 
 
 class WebSocketTests(unittest.TestCase):
@@ -367,6 +386,17 @@ class RecorderTests(unittest.TestCase):
         row, = self.rows()
         self.assertEqual((row["status"], row["path"]), ("failed", None))
 
+    def test_inactive_start_never_publishes_a_recording_offset(self):
+        from unittest import mock
+        rec = self.make(Probe(5.0))
+        rec.armed = True
+        with mock.patch.object(recorder, 'wait_for_recording', side_effect=ObsError('inactive')):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual(row['status'], 'failed')
+        self.assertIsNone(row['offset_s'])
+        self.assertIsNone(rec.recording_id)
+
     def test_thread_arms_and_disarms(self):
         rec = self.make(Probe())
         rec.poll_s = 0.01
@@ -383,6 +413,8 @@ class LinkTests(unittest.TestCase):
         self.league.executescript(SCHEMA)
         self.notes = sqlite3.connect(":memory:")
         recorder.ensure_schema(self.notes)
+        self.addCleanup(self.league.close)
+        self.addCleanup(self.notes.close)
 
     def add_match(self, match_id, start):
         store_match(self.league, riot_match(match_id, "Ahri", True, start=start), ME)
@@ -411,85 +443,52 @@ class LinkTests(unittest.TestCase):
             "SELECT COUNT(*) FROM recordings WHERE match_id='A'").fetchone()[0], 1)
 
 
-# ---------------------------------------------------------------- HTTP
-
-class RecorderApiTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        base = Path(self.tmp.name)
-        self.db, self.notes, self.video = base / "league.db", base / "reviews.db", base / "game.mp4"
-        schema_db(self.db, [(("M1", "Ahri", True), dict(e_casts=4, immobilizations=2,
-                                                          start=1_000_000))])
-        with closing(sqlite3.connect(self.db)) as c, c:
-            c.execute("INSERT INTO timelines VALUES ('M1', 60000, '{}')")
-        self.video.write_bytes(bytes(range(256)) * 4)
-        self.store = ReviewStore(self.db, self.notes)
-        self.obs, self.launches = FakeObs(), []
-        self.rec = Recorder(self.notes, password="pw", probe=Probe(), obs_factory=self.obs,
-                            launcher=self.launches.append, obs_exe=base / "missing.exe",
-                            obs_reachable=lambda: False)
-        self.rec.poll_s = 0.01
-        self.server, self.thread, self.base = serve(self.store, self.rec)
-
-    def tearDown(self):
-        self.rec.set_armed(False)
-        self.server.shutdown(); self.server.server_close(); self.thread.join()
-        self.tmp.cleanup()
-
-    def post(self, body, origin=None):
-        headers = {"Content-Type": "application/json", "Origin": origin or self.base}
-        with urlopen(Request(self.base + "/api/recorder", data=json.dumps(body).encode(),
-                             headers=headers)) as r:
-            return json.load(r)
-
-    def test_get_and_post_recorder(self):
-        with urlopen(self.base + "/api/recorder") as r:
-            self.assertEqual(json.load(r), {"armed": False, "obs": "unavailable", "game": "idle",
-                                            "last": None})
-        self.assertTrue(self.post({"armed": True})["armed"])
-        self.assertFalse(self.post({"armed": False})["armed"])
-        for body, origin, code in [({"armed": "yes"}, None, 400), ({}, None, 400),
-                                   ({"armed": True}, "http://evil.example", 403)]:
-            with self.subTest(body=body, origin=origin), self.assertRaises(HTTPError) as err:
-                self.post(body, origin)
-            self.assertEqual(err.exception.code, code)
-            err.exception.close()
-        self.assertFalse(self.rec.armed)
-
-    def test_match_recording_link_and_range_stream(self):
-        with urlopen(self.base + "/api/match?id=M1") as r:
-            self.assertIsNone(json.load(r)["recording"])
-        with closing(sqlite3.connect(self.notes)) as c, c:
-            c.execute("INSERT INTO recordings (path, offset_s, started_at, status, game_zero_ms) "
-                      "VALUES (?, -12.5, '2026-09-22T20:00:00+00:00', 'saved', ?)",
-                      (str(self.video), 1_000_000 + 90_000))
-        with urlopen(self.base + "/api/match?id=M1") as r:
-            recording = json.load(r)["recording"]
-        self.assertEqual(recording, {"path": str(self.video), "offset_s": -12.5,
-                                     "status": "linked", "url": "/api/recording-file?id=M1"})
-        with urlopen(self.base + "/api/recorder") as r:
-            self.assertEqual(json.load(r)["last"]["match_id"], "M1")
-        with urlopen(Request(self.base + recording["url"], headers={"Range": "bytes=10-19"})) as r:
-            self.assertEqual(r.status, 206)
-            self.assertEqual(r.headers["Content-Range"], "bytes 10-19/1024")
-            self.assertEqual(r.headers["Content-Type"], "video/mp4")
-            self.assertEqual(r.read(), bytes(range(10, 20)))
-        with urlopen(self.base + recording["url"]) as r:
-            self.assertEqual(len(r.read()), 1024)
-        with self.assertRaises(HTTPError) as err:
-            urlopen(self.base + "/api/recording-file?id=absent")
-        self.assertEqual(err.exception.code, 404)
-        err.exception.close()
-
-    def test_byte_range(self):
-        self.assertIsNone(byte_range(None, 100))
-        self.assertEqual(byte_range("bytes=0-", 100), (0, 99))
-        self.assertEqual(byte_range("bytes=-10", 100), (90, 99))
-        self.assertEqual(byte_range("bytes=50-500", 100), (50, 99))
-        for bad in ("bytes=100-", "bytes=5-2", "items=0-1", "bytes=0-1,4-5", "bytes=x-"):
-            with self.subTest(bad=bad), self.assertRaises(ValueError):
-                byte_range(bad, 100)
+class RecordingStoreTests(unittest.TestCase):
+    def test_saved_recording_links_without_a_review_server(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            db, notes, video = root / 'league.db', root / 'reviews.db', root / 'game.mp4'
+            with closing(sqlite3.connect(db)) as conn:
+                conn.executescript(SCHEMA)
+                store_match(conn, riot_match('M1', 'Ahri', True, start=1_000_000), ME)
+                conn.execute("INSERT INTO timelines VALUES ('M1', 60000, '{}')")
+                conn.commit()
+            video.write_bytes(b'fixture')
+            store = ReviewStore(db, notes)
+            self.assertIsNone(store.recording('M1'))
+            with closing(sqlite3.connect(notes)) as conn, conn:
+                conn.execute("INSERT INTO recordings (path, offset_s, started_at, status, game_zero_ms) "
+                             "VALUES (?, -12.5, '2026-09-22T20:00:00+00:00', 'saved', ?)",
+                             (str(video), 1_090_000))
+            recording = store.recording('M1')
+            self.assertEqual(recording['offset_s'], -12.5)
+            self.assertEqual(recording['status'], 'linked')
+            self.assertEqual(store.recording_path('M1'), video)
+            self.assertIsNone(recording['url'])
+            self.assertEqual(store.detail('M1')['recording'], recording)
 
 
-if __name__ == "__main__":
+class RecorderCliTests(unittest.TestCase):
+    def test_cli_link_opens_matches_readonly(self):
+        from unittest import mock
+        import io
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            db, notes = root / 'league.db', root / 'reviews.db'
+            with closing(sqlite3.connect(db)) as conn:
+                conn.executescript(SCHEMA)
+                store_match(conn, riot_match('M1', 'Ahri', True, start=1_000_000), ME)
+            with closing(sqlite3.connect(notes)) as conn, conn:
+                recorder.ensure_schema(conn)
+                conn.execute("INSERT INTO recordings (path, status, game_zero_ms) VALUES ('game.mkv', 'saved', 1090000)")
+            before = db.read_bytes()
+            with mock.patch('fetch_matches.load_dotenv'), redirect_stdout(io.StringIO()):
+                recorder.main(['--link', '--db', str(db), '--notes', str(notes)])
+            self.assertEqual(db.read_bytes(), before)
+            with closing(sqlite3.connect(notes)) as conn:
+                self.assertEqual(conn.execute('SELECT match_id, status FROM recordings').fetchone(), ('M1', 'linked'))
+
+
+if __name__ == '__main__':
     unittest.main()

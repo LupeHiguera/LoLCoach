@@ -23,7 +23,7 @@ from pathlib import Path
 
 import analyze
 from fetch_matches import SCHEMA, load_dotenv
-from review_app import ReviewStore, connect
+from review_data import ReviewStore, connect
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_COUNT = 5

@@ -4,7 +4,7 @@ import shutil
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -96,7 +96,7 @@ class EvidenceTests(unittest.TestCase):
     def test_only_linked_finished_recordings_used(self):
         with tempfile.TemporaryDirectory() as temp:
             notes = Path(temp) / 'reviews.db'
-            with sqlite3.connect(notes) as conn:
+            with closing(sqlite3.connect(notes)) as conn, conn:
                 conn.executescript(RECORDING_SCHEMA)
                 conn.execute("INSERT INTO recordings (match_id,path,offset_s,status) "
                              "VALUES ('NA1_123','finished.mp4',-5,'linked')")
@@ -136,7 +136,7 @@ class ExtractionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             db, video, output = root / 'league.db', root / 'video.mp4', root / 'clips'
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn, conn:
                 populate(conn)
             original = db.read_bytes()
             video.write_bytes(b'fixture')

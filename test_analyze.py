@@ -28,6 +28,7 @@ def match(match_id, champ, win, e_casts=None, immobilizations=None, start=0, dur
 class CharmTests(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
+        self.addCleanup(self.conn.close)
         self.conn.executescript(SCHEMA)
 
     def add(self, *args, **kwargs):
@@ -94,6 +95,7 @@ class BootstrapTests(unittest.TestCase):
 class ReportTests(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
+        self.addCleanup(self.conn.close)
         self.conn.executescript(SCHEMA)
 
     def add(self, *args, **kwargs):
