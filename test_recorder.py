@@ -63,6 +63,8 @@ class FakeObs:
 
     def __init__(self):
         self.requests, self.fail, self.unreachable, self.recording = [], None, False, False
+        self.output_path, self.lookup_reply = None, None
+        self.stop_path = r"C:\Videos\game.mkv"
 
     def __call__(self, password):
         self.password = password
@@ -79,6 +81,12 @@ class FakeObs:
     def request(self, request_type, data=None):
         if request_type == 'GetRecordStatus':
             return {'outputActive': self.recording}
+        if request_type == 'GetOutputList':
+            return {'outputs': [{'outputName': 'simple_file_output', 'outputActive': self.recording}]}
+        if request_type == 'GetOutputSettings':
+            if isinstance(self.lookup_reply, Exception):
+                raise self.lookup_reply
+            return self.lookup_reply or {'outputSettings': {'path': self.output_path}}
         self.requests.append(request_type)
         if self.fail:
             raise self.fail
@@ -87,7 +95,7 @@ class FakeObs:
             return {}
         if request_type == "StopRecord":
             self.recording = False
-            return {"outputPath": r"C:\Videos\game.mkv"}
+            return {"outputPath": self.stop_path}
         return {}
 
 
@@ -250,6 +258,31 @@ class ObsClientTests(unittest.TestCase):
         with ObsClient("pw", connect=lambda: ws) as obs, self.assertRaises(ObsError) as err:
             obs.request("StartRecord")
         self.assertIn("OutputRunning", str(err.exception))
+        self.assertEqual(err.exception.code, 500)
+
+
+class OutputPathTests(unittest.TestCase):
+    def lookup(self, outputs, path):
+        replies = {'GetOutputList': {'outputs': outputs},
+                   'GetOutputSettings': {'outputSettings': {'path': path}}}
+
+        class Obs:
+            def request(self, request_type, data=None):
+                return replies[request_type]
+        return recorder.active_recording_path(Obs())
+
+    def test_only_an_active_local_video_file_is_pinned(self):
+        local = str(Path(tempfile.gettempdir()) / 'game.mkv')
+        active = [{'outputName': 'adv_file_output', 'outputActive': True}]
+        self.assertEqual(self.lookup(active, local), local)
+        for outputs, path in (
+                ([{'outputName': 'simple_file_output', 'outputActive': False}], local),
+                ([{'outputName': 'Replay Buffer', 'outputActive': True}], local),
+                (active, r'\\server\share\game.mkv'), (active, '//server/share/game.mkv'),
+                (active, 'game.mkv'), (active, str(Path(tempfile.gettempdir()) / 'notes.txt')),
+                (active, None)):
+            with self.subTest(outputs=outputs, path=path):
+                self.assertIsNone(self.lookup(outputs, path))
 
 
 class LiveClientTests(unittest.TestCase):
@@ -386,6 +419,95 @@ class RecorderTests(unittest.TestCase):
         row, = self.rows()
         self.assertEqual((row["status"], row["path"]), ("failed", None))
 
+    def test_manual_obs_stop_preserves_the_original_recording(self):
+        video = Path(self.tmp.name) / 'game.mkv'
+        self.obs.output_path = str(video)
+        rec = self.make(Probe(5.0, 5.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        self.assertEqual(self.rows()[0]['path'], str(video))
+        video.write_bytes(b'finished recording')
+        self.obs.recording = False
+        self.obs.output_path = str(Path(self.tmp.name) / 'different-game.mkv')
+        self.obs.fail = ObsError('OutputNotRunning', code=501)
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual((row['status'], row['path'], row['error']), ('saved', str(video), None))
+        self.assertEqual(row['note'], recorder.NOTE_STOPPED_OUTSIDE)
+        self.assertEqual(rec.status()['error'], recorder.NOTE_STOPPED_OUTSIDE)
+
+    def test_restart_outside_lolcoach_keeps_the_file_whose_offset_is_known(self):
+        video = Path(self.tmp.name) / 'game.mkv'
+        video.write_bytes(b'first part')
+        self.obs.output_path = str(video)
+        self.obs.stop_path = str(Path(self.tmp.name) / 'later.mkv')
+        rec = self.make(Probe(5.0, 5.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual((row['status'], row['path'], row['note']),
+                         ('saved', str(video), recorder.NOTE_RESTARTED))
+        self.assertIn('StopRecord', self.obs.requests)  # the later file is still stopped
+
+    def test_restart_with_missing_first_file_fails(self):
+        self.obs.output_path = str(Path(self.tmp.name) / 'gone.mkv')
+        self.obs.stop_path = str(Path(self.tmp.name) / 'later.mkv')
+        rec = self.make(Probe(5.0, 5.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual((row['status'], row['note']), ('failed', recorder.NOTE_RESTARTED))
+
+    def test_same_file_with_other_separators_is_not_a_restart(self):
+        video = Path(self.tmp.name) / 'game.mkv'
+        self.obs.output_path = str(video)
+        self.obs.stop_path = video.as_posix()
+        rec = self.make(Probe(5.0, 5.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual((row['status'], row['note']), ('saved', None))
+
+    def test_failed_filename_lookup_still_records(self):
+        for reply in (ObsError('NoOutput', code=600), {'outputSettings': None}, {}):
+            with self.subTest(reply=reply):
+                self.notes.unlink(missing_ok=True)
+                self.obs.recording, self.obs.lookup_reply = False, reply
+                rec = self.make(Probe(5.0, 5.0))
+                rec.armed = True
+                rec.step()
+                row, = self.rows()
+                self.assertEqual((row['status'], row['path']), ('recording', None))
+
+    def test_manual_stop_with_missing_file_stays_failed(self):
+        self.obs.output_path = str(Path(self.tmp.name) / 'missing.mkv')
+        rec = self.make(Probe(5.0, 5.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        self.obs.fail = ObsError('OutputNotRunning', code=501)
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        self.assertEqual(self.rows()[0]['status'], 'failed')
+
+    def test_other_stop_errors_are_not_hidden_by_an_existing_file(self):
+        video = Path(self.tmp.name) / 'incomplete.mkv'
+        video.write_bytes(b'partial recording')
+        self.obs.output_path = str(video)
+        rec = self.make(Probe(5.0, 5.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        self.obs.fail = ObsError('Output failure', code=702)
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        self.assertEqual(self.rows()[0]['status'], 'failed')
+
     def test_inactive_start_never_publishes_a_recording_offset(self):
         from unittest import mock
         rec = self.make(Probe(5.0))
@@ -441,6 +563,27 @@ class LinkTests(unittest.TestCase):
         link_recordings(self.notes, self.league)
         self.assertEqual(self.notes.execute(
             "SELECT COUNT(*) FROM recordings WHERE match_id='A'").fetchone()[0], 1)
+
+    def test_recording_lookup_excludes_unfinished_and_failed_files(self):
+        for status in ('recording', 'failed', 'linked'):
+            with self.subTest(status=status):
+                self.notes.execute('DELETE FROM recordings')
+                self.add_rec(5_000_000, status=status)
+                self.notes.execute("UPDATE recordings SET match_id='A'")
+                result = recorder.recording_for(self.notes, 'A')
+                self.assertEqual(result is not None, status == 'linked')
+
+
+class SchemaTests(unittest.TestCase):
+    def test_older_recordings_table_gains_a_note_column(self):
+        with closing(sqlite3.connect(':memory:')) as conn:
+            conn.execute("CREATE TABLE recordings (id INTEGER PRIMARY KEY, match_id TEXT, "
+                         "path TEXT, offset_s REAL, started_at TEXT, status TEXT NOT NULL, "
+                         "game_zero_ms INTEGER, error TEXT)")
+            recorder.ensure_schema(conn)
+            recorder.ensure_schema(conn)  # idempotent
+            columns = [r[1] for r in conn.execute('PRAGMA table_info(recordings)')]
+        self.assertEqual(columns[-1], 'note')
 
 
 class RecordingStoreTests(unittest.TestCase):

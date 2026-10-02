@@ -1,7 +1,7 @@
 # LoLCoach Plan
 
 A personal, local-first, TOS-safe coach for Ahri mid. It builds on the existing fetcher,
-CLI and review app. Last updated 2026-10-01.
+CLI and review app. Last updated 2026-10-02.
 
 ## Why
 - Returning to ranked on Ahri mid; struggling with decisions and Charm (E) accuracy.
@@ -44,13 +44,18 @@ _TBD: more constraints from the user go here._
 ## Where we are
 - [x] Windows setup: project venv/requests, FFmpeg/FFprobe, authenticated OBS control,
       loopback LM Studio, synthetic 4K/60 H.264 capture and local vision/text transport
-- [x] CLI pipelines decoupled from the removed UI via `review_data.py`; recorder CLI
+- [x] CLI pipelines decoupled from the review UI via `review_data.py`; recorder CLI
       can check OBS, arm capture and link saved recordings
-- [ ] First real game-window capture and manual clock-sync check in Practice Tool;
-      then record a normal match for Riot match linking and death-clip review
+- [x] First Practice Tool recording: 188 s at 4K/60; user confirmed the full minimap
+      after resizing. Local clock readings agree to whole seconds with the saved offset.
+- [x] Second Practice Tool run: automatic stop confirmed by the user, saved metadata
+      without errors, and full audio/video decode passed (232 s, 4K/60).
+- [x] Human clock check: second recording at video 1:00 shows game 1:01, consistent
+      with the saved -1.6 s offset at whole-second precision (one checkpoint).
+- [ ] Record a normal match for Riot match linking and death-clip review
 
-The UI files were intentionally removed locally during Windows checkout setup.
-The CLI/storage path is active; historical UI milestones below describe prior work.
+The review app was restored on 2026-10-02 after being deleted by mistake; it now
+reuses `review_data.py`, which the CLI pipelines share.
 Synthetic tests establish transport and schema checks, not coaching quality.
 
 - [x] `fetch_matches.py`: Riot API → `league.db` (matches, frames, events, raw JSON)
@@ -66,10 +71,15 @@ Synthetic tests establish transport and schema checks, not coaching quality.
 - [x] `coach/eval.py`: portable datasets, cached attempts, comparisons, human ratings and text-only Sol adapter (offline verified; live API unverified)
 - [x] `coach/event_eval.py`: dense action timeline scoring, independent of sparse-frame caps
 
-**Current direction (2026-10-01):** Windows setup and synthetic capture/model smoke
-checks are complete. No gameplay footage has been validated. First focus remains
-deaths and positioning: verify the actual Window Capture source and clock alignment,
-then collect a small set of death clips with human-checked observations. Keep dense
+**Current direction (2026-10-02):** Windows setup and synthetic capture/model smoke
+checks are complete. A first Practice Tool recording passed media checks; the user
+confirmed its minimap is fully visible (the small local model incorrectly flagged
+clipping). Manual OBS stop exposed a recorder error; the saved entry was recovered
+and the recorder now retains its own output filename for that case. The second run
+confirmed automatic stopping and passed a human clock check at one timestamp;
+subsecond sync, long-match drift and coaching quality remain unverified. First focus
+remains deaths and positioning: verify normal-match linking, then collect a small
+set of death clips with human-checked observations. Keep dense
 video models and training behind that milestone.
 
 **First findings** (21 Ahri, 7 Lulu games; small sample):
