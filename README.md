@@ -11,10 +11,47 @@ Pulls my recent Ahri/Zoe games and their timelines from the Riot API into a loca
 
 Re-running only downloads new matches. `--summary-only` prints the lane table without calling the API.
 
+## Local review app
+
+Run `python review_app.py` (Python 3.10+, standard library only), then open
+http://127.0.0.1:8765 (on Windows, `py review_app.py` works if `python` opens the Microsoft
+Store). Keep the terminal running; Ctrl+C stops the app.
+
+The app opens ranked solo/duo by default and lets you filter Ahri/Zoe mid games by
+champion, queue, and result. Review gold/XP/lane-CS differences over the full match,
+choose a death, sampled gold deficit, farm gap, or any timeline snapshot, and save
+your observation and a possible next action. Set one practice goal in Today's focus.
+
+Optional video selection uses a local browser object URL: footage is not uploaded.
+Set the recording time (seconds) corresponding to game 0:00 and use Jump to review
+start. Choose the recording again after a reload or match switch. Cuts or pauses
+require manually adjusting the offset. Browser codec support varies (MP4/WebM recommended).
+
+`league.db` is opened read-only. Notes and the current focus persist in the separate,
+git-ignored `reviews.db`; back up both files to keep your imports and reviews.
+Use `--db PATH`, `--notes PATH`, or `--port 8766` to override defaults.
+
+Review prompts are deliberately limited:
+
+- Death timestamps are events; the preceding minute is context to inspect.
+- The first sampled gold difference of -300 or below is a configurable-in-code
+  review threshold, not evidence of a mistake or the cause of a loss.
+- Farm gaps mean no increase in lane CS for at least two minutes after 2:00.
+  Missing snapshots break a gap; jungle CS is excluded. They do not prove missed
+  last hits, roaming, or lost opportunity.
+- Gold/XP/CS differences use matching timestamps for the assigned lane opponent;
+  role swaps and later team play need interpretation. Missing comparisons stay missing.
+- Causes are user-entered hypotheses; saved reviews identify whether evidence was
+  timeline data, a recording, or recollection. The UI does not run AI coaching;
+  the optional recorder uses the local game-clock endpoint only to start/stop capture
+  and estimate sync. A separate CLI model harness is described below.
+
+Verify with `python -m unittest -v`.
+
 ## Windows pipeline setup
 
-The review UI has been removed from this checkout. CLI clips, model evaluation and
-recording use `review_data.py` for shared storage, without starting a web server.
+CLI clips, model evaluation and the recorder share storage with the review app
+through `review_data.py`, so they work without starting the web server.
 `league.db` is read-only; notes and recording links belong in ignored `reviews.db`.
 
 Python 3.10+ is sufficient for the current pipelines; PyTorch is not required.
