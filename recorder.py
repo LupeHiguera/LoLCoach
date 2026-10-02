@@ -34,6 +34,9 @@ OBS_HOST, OBS_PORT = "127.0.0.1", 4455
 OBS_TIMEOUT_S = 3.0
 OBS_START_TIMEOUT_S = 10.0
 OBS_START_POLL_S = 0.1
+OBS_OUTPUT_NOT_RUNNING = 501
+FILE_OUTPUT_NAMES = {'simple_file_output', 'adv_file_output'}
+RECORDING_EXTENSIONS = {'.mkv', '.mp4', '.mov', '.flv', '.ts'}
 # Don't launch OBS again this soon after a launch; it takes a few seconds to open.
 OBS_LAUNCH_COOLDOWN_S = 60.0
 
@@ -49,6 +52,10 @@ MISSES_TO_STOP = 2
 LINK_WINDOW_MS = 5 * 60_000
 
 STATUSES = ("recording", "saved", "linked", "failed")
+# Caveats kept on a saved row. Its length and sync were not confirmed by our own StopRecord.
+NOTE_STOPPED_OUTSIDE = "OBS was stopped outside LoLCoach; recording length is unverified"
+NOTE_RESTARTED = ("OBS was restarted mid-game; kept the first file, whose offset is known. "
+                  "The later file is not linked")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recordings (
@@ -59,7 +66,8 @@ CREATE TABLE IF NOT EXISTS recordings (
     started_at   TEXT,
     status       TEXT NOT NULL,
     game_zero_ms INTEGER,
-    error        TEXT
+    error        TEXT,
+    note         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_recordings_match ON recordings (match_id);
 """
@@ -69,6 +77,10 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 class ObsError(Exception):
     """OBS answered, but refused or failed the request."""
+
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 class ObsAuthError(ObsError):
@@ -231,7 +243,8 @@ class ObsClient:
                 status = d.get("requestStatus", {})
                 if not status.get("result"):
                     raise ObsError(f"{request_type} failed: "
-                                   f"{status.get('comment') or status.get('code')}")
+                                   f"{status.get('comment') or status.get('code')}",
+                                   code=status.get("code"))
                 return d.get("responseData") or {}
 
 
@@ -242,6 +255,34 @@ def wait_for_recording(obs, timeout_s=OBS_START_TIMEOUT_S, clock=time.monotonic,
         if clock() >= deadline:
             raise ObsError('OBS acknowledged StartRecord but capture did not become active; check output settings')
         sleep(OBS_START_POLL_S)
+
+
+def active_recording_path(obs):
+    """Pin the current local recording filename; never infer it from a directory listing."""
+    for output in obs.request('GetOutputList').get('outputs', []):
+        if not output.get('outputActive') or output.get('outputName') not in FILE_OUTPUT_NAMES:
+            continue
+        settings = obs.request('GetOutputSettings', {'outputName': output['outputName']})
+        value = (settings.get('outputSettings') or {}).get('path')
+        if isinstance(value, str) and not value.startswith(('\\\\', '//')):
+            path = Path(value)
+            if path.is_absolute() and path.suffix.lower() in RECORDING_EXTENSIONS:
+                return str(path)
+    return None
+
+
+def same_file(a, b):
+    """Same path once separators and (on Windows) case are normalised; no disk access."""
+    return Path(a) == Path(b)
+
+
+def recording_file_exists(value):
+    """A saved file exists; this does not verify decoding, completeness or clock sync."""
+    try:
+        path = Path(value) if value else None
+        return path is not None and path.is_file() and path.stat().st_size > 0
+    except (OSError, ValueError):
+        return False
 
 
 # ---------------------------------------------------------------- live client + OBS process
@@ -286,6 +327,8 @@ def launch_obs(exe=OBS_EXE):
 
 def ensure_schema(conn):
     conn.executescript(SCHEMA)
+    if "note" not in {row[1] for row in conn.execute("PRAGMA table_info(recordings)")}:
+        conn.execute("ALTER TABLE recordings ADD COLUMN note TEXT")  # databases before notes
 
 
 def iso(ts):
@@ -301,7 +344,8 @@ def last_recording(conn):
 def recording_for(conn, match_id):
     """Newest linked recording row for a match: (path, offset_s, status) or None."""
     return conn.execute("SELECT path, offset_s, status FROM recordings WHERE match_id = ? "
-                        "AND path IS NOT NULL ORDER BY id DESC LIMIT 1", (match_id,)).fetchone()
+                        "AND status = 'linked' AND path IS NOT NULL ORDER BY id DESC LIMIT 1",
+                        (match_id,)).fetchone()
 
 
 def link_recordings(notes_conn, league_conn, window_ms=LINK_WINDOW_MS):
@@ -474,6 +518,12 @@ class Recorder:
             with self.obs_factory(self.password) as obs:
                 obs.request('StartRecord')
                 wait_for_recording(obs)
+                started = self.clock()
+                now_game = self.probe()
+                try:
+                    path = active_recording_path(obs)
+                except Exception:  # noqa: BLE001 -- best effort; OBS is already recording
+                    path = None  # Normal StopRecord can still return the filename.
         except ObsAuthError as exc:
             self.auth_failed, self.error = True, str(exc)
             self._failed_row(str(exc))
@@ -487,16 +537,14 @@ class Recorder:
             self.error = "OBS is not reachable on port 4455; starting it"
             self.ensure_obs()
             return
-        started = self.clock()
-        now_game = self.probe()
         if now_game is None:
             now_game = game_time + (started - before)
         self.error = None
         with closing(self._db()) as conn, conn:
             cur = conn.execute(
-                "INSERT INTO recordings (offset_s, started_at, status, game_zero_ms) "
-                "VALUES (?,?,?,?)",
-                (round(-now_game, 1), iso(started), "recording",
+                "INSERT INTO recordings (path, offset_s, started_at, status, game_zero_ms) "
+                "VALUES (?,?,?,?,?)",
+                (path, round(-now_game, 1), iso(started), "recording",
                  int(round((started - now_game) * 1000))))
             self.recording_id = cur.lastrowid
 
@@ -508,15 +556,28 @@ class Recorder:
 
     def _stop(self):
         rec_id, self.recording_id = self.recording_id, None
+        with closing(self._db()) as conn:
+            row = conn.execute('SELECT path FROM recordings WHERE id = ?', (rec_id,)).fetchone()
+            started_path = row[0] if row else None
+        note = None
         try:
             path = self._obs("StopRecord").get("outputPath")
             status, error = ("saved", None) if path else ("failed", "OBS returned no file path")
+            if path and started_path and not same_file(path, started_path):
+                # The offset belongs to the file OBS started for us, not to this one.
+                path, note = started_path, NOTE_RESTARTED
+                if not recording_file_exists(started_path):
+                    status, error = "failed", "The first recording file is missing"
         except (ObsError, OSError) as exc:
-            path, status, error = None, "failed", f"StopRecord failed: {exc}"
-        self.error = error
+            stopped_outside = getattr(exc, "code", None) == OBS_OUTPUT_NOT_RUNNING
+            if stopped_outside and recording_file_exists(started_path):
+                path, status, error, note = started_path, "saved", None, NOTE_STOPPED_OUTSIDE
+            else:
+                path, status, error = started_path, "failed", f"StopRecord failed: {exc}"
+        self.error = error or note
         with closing(self._db()) as conn, conn:
-            conn.execute("UPDATE recordings SET path = ?, status = ?, error = ? WHERE id = ?",
-                         (path, status, error, rec_id))
+            conn.execute("UPDATE recordings SET path = ?, status = ?, error = ?, note = ? "
+                         "WHERE id = ?", (path, status, error, note, rec_id))
 
 
 def main(argv=None):

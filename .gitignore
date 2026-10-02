@@ -230,6 +230,8 @@ data/
 *.webm
 *.mov
 *.avi
+*.flv
+*.ts
 *.wav
 *.mp3
 *.m4a
