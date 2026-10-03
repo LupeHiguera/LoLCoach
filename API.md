@@ -11,7 +11,7 @@ demo (UI agent). Change this file first, then the code.
   ms elsewhere). `*_s` are seconds. Rates and shares are 0–1 floats, never percentages.
 - `null` means "not known", never zero. Render it as "–", not "0".
 
-## Local model artifacts (v1; CLI, not HTTP routes)
+## Local model artifacts (packet v2; CLI, not HTTP routes)
 
 `coach.contracts` defines three strict JSON contracts, exportable with
 `python -m coach.harness schema packet|observations|review`.
@@ -20,6 +20,12 @@ demo (UI agent). Change this file first, then the code.
   timestamps, sync status, bounded kill events, selected frames, focus and selected
   knowledge. No match ID, player identifiers, local absolute paths, raw API JSON,
   outcomes or full-match history. Frame filenames are relative to `packet.json`.
+  v2 adds `state` (or `null` when not supplied): `as_of_ms` equal to `decision_ms`,
+  `sampled_ms` of the per-minute snapshot, `my_side`, a fixed `note`, and up to 32
+  facts `{id, game_ms, source: riot_timeline, visibility: global_event_not_player_view,
+  kind: player|objective|score|wards, statement}`. Facts may predate `start_ms` but
+  never follow `decision_ms`. Reviews may cite fact IDs; vision requests get `state: null`.
+  v1 packets (no `state`) remain valid.
 - **observations**: the same moment ID, statements with game-clock timestamps and
   evidence references, plus explicit unknowns. Model output must be
   `source: local_vision`, `verification: model_observed`. Stored evidence may also use
@@ -225,6 +231,45 @@ Streams the linked recording for a match as `video/mp4`, `video/x-matroska`,
 and `206 Partial Content` for `Range` requests. 404 `"No recording for this match"`
 when nothing is linked or the file is gone. Only files registered in the `recordings`
 table are ever served.
+
+## GET /api/coaching?id=<match_id> (new; Watch view)
+
+Model coaching prepared by `coach.harness` for one match, read from `data/moments/*/`
+(`review_app.py --moments PATH`). A bundle is included only when its packet `moment_id`
+equals `opaque_id(match_id, "death-<ts>", start_ms, decision_ms)` for one of the
+player's deaths after `decision_ms`; other folders are skipped. 404 for an unknown match.
+
+```json
+{"scanned": 3,
+ "moments": [{"bundle": "decision-1", "death_ms": 1189566, "decision_ms": 1184566,
+   "start_ms": 1154566, "focus": "Deaths and positioning", "sync_verified": false,
+   "frames": 8, "state": true,
+   "observations": [{"id": "obs-1", "game_ms": 1184566, "text": "…",
+                     "source": "Model observation, unchecked"}],
+   "unknowns": ["…"],
+   "review": {"assessment": "reviewable",
+     "claims": [{"statement": "…", "kind": "hypothesis", "evidence_refs": ["obs-1"],
+                 "evidence": [{"id": "obs-1", "game_ms": 1184566,
+                               "source": "Model observation, unchecked", "text": "…"}]}],
+     "alternative": {"action": "…", "tradeoff": "…", "evidence_refs": ["obs-1"], "evidence": ["…"]},
+     "practice_focus": "…", "missing_evidence": []},
+   "problem": null}]}
+```
+
+`review` is null and `problem` says why when observations or the review are missing or
+fail `coach.contracts` validation. Evidence `source` is one of `Model observation,
+unchecked`, `Checked by you`, `Riot event`, `Riot timeline` or `Selected knowledge`.
+Validation checks structure and citations, not truth.
+
+## POST /api/observation-check (new; Watch view)
+
+Body `{"match_id": "...", "bundle": "decision-1", "observation_id": "obs-1", "checked": true}`.
+Sets that observation's `verification` to `human_verified` (`false`: back to
+`model_observed`) in the bundle's `observations.json`, after checking the bundle is a
+direct child of the moments folder, belongs to this match and still validates. The file
+is replaced atomically; the statement is never edited. Returns the updated moment in the
+`/api/coaching` shape. 400 for an unknown bundle or observation, another game's bundle,
+or a `source: human` observation; 404 for an unknown match.
 
 ## GET /api/focus (current)
 

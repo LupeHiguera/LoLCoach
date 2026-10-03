@@ -119,7 +119,8 @@ function renderMatches() {
       : 'No Ahri/Zoe mid games with a timeline yet. Press Fetch new, or run <code>python fetch_matches.py --count 20</code>.');
 }
 
-$('matches').onclick = e => { const row = e.target.closest('tr[data-id]'); if (row) openInReview(row.dataset.id); };
+// In Watch, picking a game stays in Watch; everywhere else it opens Review.
+$('matches').onclick = e => { const row = e.target.closest('tr[data-id]'); if (row) (state.view === 'watch' ? loadMatch : openInReview)(row.dataset.id); };
 for (const id of ['champion', 'queue', 'result']) $(id).onchange = renderMatches;
 
 // ---------------------------------------------------------------- match
@@ -143,6 +144,7 @@ async function loadMatch(id) {
     clearVideo(); showLinkedRecording();
     $('review-empty').hidden = true; $('detail').hidden = false;
     renderMatchHeader(); renderMatches(); renderChart(); renderMoments(); renderKills(); renderReviewForm();
+    document.dispatchEvent(new CustomEvent('matchloaded'));  // watch.js
     status(`Loaded ${detail.match.my_champion} vs ${detail.match.opp_champion || 'unknown'} · ${isoDay(detail.match.game_start_ms)}`, 'note');
   } catch (e) {
     if (request === state.request) status(e.message, 'error');
@@ -850,7 +852,7 @@ function markReadOnly() {
 }
 
 // ---------------------------------------------------------------- views (hash routing)
-const VIEWS = ['review', 'charm', 'profile'];
+const VIEWS = ['review', 'watch', 'charm', 'profile'];
 
 function showView() {
   const name = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'review';
@@ -860,6 +862,7 @@ function showView() {
     if (a.dataset.view === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   document.title = `${name[0].toUpperCase()}${name.slice(1)} · LoLCoach`;
+  if (name !== 'review') $('video').pause();
   if (viewLoaders[name]) viewLoaders[name]();
 }
 window.addEventListener('hashchange', showView);
@@ -908,6 +911,7 @@ window.addEventListener('beforeunload', e => { if (state.dirty || state.focusDir
     if (first) await loadMatch(first.match_id);
     else showReviewEmpty('<strong>No games to review.</strong> Press Fetch new in Games, or run <code>python fetch_matches.py --count 20</code> and reload.');
     if (!first) status('No games imported', 'note');
+    if (viewLoaders[state.view]) viewLoaders[state.view]();  // views opened before watch.js or the games list loaded
   } catch (e) {
     $('matches').innerHTML = emptyRow(4, 'Games could not be loaded.');
     showReviewEmpty(`<strong>Could not load your games.</strong> ${esc(e.message)}`, true);

@@ -52,7 +52,35 @@ _TBD: more constraints from the user go here._
       without errors, and full audio/video decode passed (232 s, 4K/60).
 - [x] Human clock check: second recording at video 1:00 shows game 1:01, consistent
       with the saved -1.6 s offset at whole-second precision (one checkpoint).
-- [ ] Record a normal match for Riot match linking and death-clip review
+- [x] First ranked recording: full decode passed (26:50, 4K/60); Riot match and
+      timeline fetched and recording linked. Loading introduced about 74 seconds
+      before game time; user confirmed game 8:46 at video 10:00 and offset corrected.
+      Future captures wait for a positive game clock before starting OBS.
+- [ ] Review the first ranked death clip and human-check local model observations
+
+The first ranked death clip was extracted successfully (70 seconds). Four frames
+ending five seconds before the death reached the local observation/review harness.
+The 3B observer produced unsupported ability claims and was rejected for coaching;
+the 14B observer remains unverified and its reviewer returned `needs_more_evidence`
+with no alternative or practice focus. This is one pipeline check, not a model benchmark.
+
+Qwen3.8-27B Q4_K_M is installed in LM Studio with its BF16 vision projector
+(17.74 GB combined). It loaded with a 16K context on the CUDA runtime and read the
+human-checked clock crop correctly (8:46, 12.69 s for one request). Gameplay
+observation quality remains untested. Local setup evidence is in
+`data/evals/qwen38-install/`; the model was unloaded after testing to free GPU memory.
+
+`coach.observer` now adds native HUD/minimap crops beside an unchanged moment
+packet, including its timeline facts. The first ranked bundle covers eight
+timestamps from 19:19.5 through 19:44.5, with 24 timeline facts retained for the
+reviewer and withheld from vision. The user confirmed crop coverage at the final
+timestamp. All 24 images are saved locally; requests default to eight whole frames
+plus the final HUD/minimap crops (10 images), with `--crop-frames all` available.
+Qwen3.8 requests with both 24 and 10 images timed out at 300 s (32K context, low
+reasoning requested); no observation claims were published. Profile inference
+before human claim checking and reviewer comparison. Check-sheet generation is
+implemented but never marks claims verified automatically. Latest combined suite:
+169 tests, 167 passed and 2 skipped, including real native crop extraction.
 
 The review app was restored on 2026-10-02 after being deleted by mistake; it now
 reuses `review_data.py`, which the CLI pipelines share.
@@ -78,8 +106,8 @@ clipping). Manual OBS stop exposed a recorder error; the saved entry was recover
 and the recorder now retains its own output filename for that case. The second run
 confirmed automatic stopping and passed a human clock check at one timestamp;
 subsecond sync, long-match drift and coaching quality remain unverified. First focus
-remains deaths and positioning: verify normal-match linking, then collect a small
-set of death clips with human-checked observations. Keep dense
+remains deaths and positioning: ranked match linking now works; review the first
+death clip, then collect a small set with human-checked observations. Keep dense
 video models and training behind that milestone.
 
 **First findings** (21 Ahri, 7 Lulu games; small sample):
@@ -164,8 +192,13 @@ to positioning, not only aim. That is a lead to check against video, not a concl
 - [ ] Separate Claude client for sanitised text-only coaching
 - [ ] Native-video/dense detector ingestion adapters and human-labelled real action timelines
 - [ ] Blind human ratings: one sheet mixing runs under anonymous labels (per-run sheets reveal the model)
-- [ ] Add pre-decision Riot timeline facts to packets (per-minute positions, level, gold,
-      items, wards, objectives); today the coach sees only kill events and model observations
+- [x] Add pre-decision Riot timeline facts to packets (`coach/state.py`, packet v2): exact
+      level/ability ranks, per-minute gold/CS/positions, objectives, totals, ward counts
+- [x] Watch view in the review app: linked recording with model coaching revealed at
+      each decision time, cited evidence and source labels (`review_coaching.py`)
+- [x] Mark observations human_verified from the Watch view (**Mark checked**)
+- [ ] Items in packets (needs a local item-name table), and dense pre-death windows with
+      minimap/HUD crops for the vision pass
 - [ ] Non-death control moments, so the coach can be checked for saying "this was fine"
 - [ ] Output: cited, hypothesis-labelled review plus a proposed focus. You accept it into
       the `focus` table.

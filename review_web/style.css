@@ -345,6 +345,36 @@ legend { font: 600 15px var(--display); text-transform: uppercase; color: var(--
 .prompt { color: var(--ash); margin: 0 0 8px; }
 video { display: block; width: 100%; max-height: 360px; background: #000; margin-top: 8px; }
 
+/* ---------- watch view ---------- */
+#watch-video { max-height: 66vh; margin: 0 0 8px; }
+#watch-video-state { margin-bottom: 8px; }
+.scrub svg { cursor: default; }
+.scrub .hit { fill: transparent; cursor: pointer; }
+.scrub .lead { fill: var(--arcane-400); fill-opacity: .15; }
+.scrub .lead.on { fill-opacity: .35; }
+.scrub .coach-mark { fill: var(--steel-900); stroke: var(--arcane-400); stroke-width: 1.5; cursor: pointer; }
+.scrub .coach-mark.on, .scrub .coach-mark:hover { fill: var(--arcane-400); }
+.scrub .coach-mark:focus-visible { outline: none; stroke: var(--text); stroke-width: 2; }
+.scrub .playhead { stroke: var(--text); stroke-width: 1; shape-rendering: crispEdges; pointer-events: none; }
+.watch-tools .dim { margin-left: auto; }
+.watch-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); align-items: start; }
+.watch-list { max-height: 480px; border-right: 1px solid var(--ink-line); }
+.advice { padding: 8px 12px 12px; min-height: 160px; }
+.advice .state { padding: 8px 12px; }
+.advice-head { font-size: 15px; font-weight: bold; margin-bottom: 2px; }
+.advice h3 { font: bold 13px/1.45 var(--body); color: var(--text); margin: 12px 0 4px; }
+.advice-action { font-size: 15px; font-weight: bold; }
+.assess { margin: 8px 0 0; padding-left: 8px; border-left: 4px solid var(--steel-200); font-weight: bold; }
+.assess.needs { border-left-color: var(--warn); }
+.advice ol, .advice ul { margin: 0; padding-left: 20px; }
+.advice ul.evidence { margin: 2px 0 8px; padding-left: 16px; color: var(--ash); }
+.advice ul.evidence .src { color: var(--steel-200); }
+.advice .claims > li + li { margin-top: 4px; }
+.advice details.obs { margin-top: 12px; border-top: 1px solid var(--ink-line); padding-top: 8px; }
+.advice summary { cursor: pointer; color: var(--steel-200); }
+.advice .obs-list li + li { margin-top: 4px; }
+.advice .obs-list .btn { padding: 0 6px; margin-left: 4px; }
+
 /* ---------- charm and profile views ---------- */
 .split { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 12px; align-items: start; }
 .stat .cell-note { white-space: nowrap; }
@@ -444,7 +474,8 @@ svg.cmp-plot .small-n { opacity: .6; }
 @media (max-width: 1023px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .games-scroll { max-height: 280px; }
-  .review-grid, .split { grid-template-columns: minmax(0, 1fr); }
+  .review-grid, .split, .watch-grid { grid-template-columns: minmax(0, 1fr); }
+  .watch-list { border-right: 0; border-bottom: 1px solid var(--ink-line); max-height: 240px; }
 }
 @media (max-width: 640px) {
   .frame { margin: 0; border-width: 0; box-shadow: none; }
