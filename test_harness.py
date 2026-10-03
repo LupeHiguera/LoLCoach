@@ -8,13 +8,14 @@ import sqlite3
 import tempfile
 import threading
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
 from coach import contracts, harness
 from coach.clips import plan_clips
+from test_state import build_match
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jKxkAAAAASUVORK5CYII=')
 
@@ -86,13 +87,24 @@ class MomentTests(unittest.TestCase):
             source = root / 'manifest.json'
             source.write_text(json.dumps(manifest()))
             output = root / 'prepared'
-            stdout = io.StringIO()
-            with redirect_stdout(stdout), mock.patch.object(harness, 'run_media') as run:
-                harness.main(['prepare', '--manifest', str(source), '--moment', 'death-300000',
-                              '--at-ms', '295000', '--output', str(output), '--dry-run'])
-            self.assertFalse(output.exists())
-            run.assert_not_called()
-            contracts.validate_packet(json.loads(stdout.getvalue()))
+            db = root / 'league.db'
+            with closing(sqlite3.connect(db)) as conn:
+                build_match(conn)
+            base = ['prepare', '--manifest', str(source), '--moment', 'death-300000',
+                    '--at-ms', '295000', '--output', str(output), '--dry-run']
+            for extra, has_state in ((['--db', str(db)], True), (['--no-timeline'], False)):
+                stdout = io.StringIO()
+                with redirect_stdout(stdout), mock.patch.object(harness, 'run_media') as run:
+                    harness.main(base + extra)
+                self.assertFalse(output.exists())
+                run.assert_not_called()
+                p = json.loads(stdout.getvalue())
+                contracts.validate_packet(p)
+                self.assertEqual(p['state'] is not None, has_state)
+            with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()), \
+                    mock.patch('sys.stderr', io.StringIO()) as stderr:
+                harness.main(base + ['--db', str(root / 'missing.db')])
+            self.assertIn('--no-timeline', stderr.getvalue())
 
 
 class ContractTests(unittest.TestCase):
