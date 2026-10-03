@@ -356,6 +356,26 @@ class RecorderTests(unittest.TestCase):
             rec.step()
         self.assertEqual(self.obs.requests, ["StartRecord"])
 
+    def test_loading_clock_zero_waits_before_starting_capture(self):
+        rec = self.make(Probe(0.0, 0.0, 0.0, 1.2, 1.4))
+        rec.armed = True
+        for _ in range(3):
+            rec.step()
+        self.assertEqual(self.obs.requests, [])
+        self.assertEqual(self.rows(), [])
+        rec.step()
+        self.assertEqual(self.obs.requests, ['StartRecord'])
+        self.assertEqual(self.rows()[0]['offset_s'], -1.4)
+
+    def test_loading_cancelled_does_not_create_a_recording(self):
+        rec = self.make(Probe(0.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        for _ in range(1 + MISSES_TO_STOP):
+            rec.step()
+        self.assertEqual(self.obs.requests, [])
+        self.assertEqual(self.rows(), [])
+        self.assertFalse(rec.in_game)
+
     def test_disarm_mid_game_still_stops_at_game_end(self):
         rec = self.make(Probe(50.0, 50.0, *([None] * MISSES_TO_STOP)))
         rec.armed = True

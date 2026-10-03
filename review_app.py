@@ -12,12 +12,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import recorder
+import review_coaching
 import review_data
 from fetch_matches import load_dotenv
 from review_data import now
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / 'review_web'
+MOMENTS = ROOT / 'data' / 'moments'  # coach.harness prepare bundles shown in the Watch view
 # Static files the app will serve from review_web/, by extension.
 STATIC_TYPES = {
     '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
@@ -156,7 +158,7 @@ def byte_range(header, size):
     return start, end
 
 
-def make_handler(store, rec=None, fetcher=None):
+def make_handler(store, rec=None, fetcher=None, moments_dir=MOMENTS):
     rec = rec or recorder.Recorder(store.notes_path)
     fetcher = fetcher or Fetcher(store.matches_path, lambda: len(store.matches()))
 
@@ -225,6 +227,9 @@ def make_handler(store, rec=None, fetcher=None):
                     self.respond(store.detail(parse_qs(url.query).get('id', [''])[0]))
                 elif url.path == '/api/focus':
                     self.respond(store.focus())
+                elif url.path == '/api/coaching':
+                    self.respond(review_coaching.coaching(store.matches_path, moments_dir,
+                                                          parse_qs(url.query).get('id', [''])[0]))
                 elif url.path == '/api/charm':
                     self.respond(store.charm())
                 elif url.path == '/api/profile':
@@ -251,6 +256,8 @@ def make_handler(store, rec=None, fetcher=None):
                 pass  # the video element dropped a range request; nothing to answer
             except sqlite3.Error:
                 self.respond({'error': 'Unable to read the database. Retry after the import finishes.'}, 503)
+            except OSError as exc:
+                self.respond({'error': f'Could not read local files: {exc.strerror or exc}'}, 500)
 
         def do_POST(self):
             if not self.allowed(post=True):
@@ -275,6 +282,10 @@ def make_handler(store, rec=None, fetcher=None):
                     result = rec.set_armed(body['armed'])
                 elif self.path == '/api/fetch':
                     result = fetcher.start()
+                elif self.path == '/api/observation-check':
+                    result = review_coaching.set_checked(store.matches_path, moments_dir, body.get('match_id'),
+                                                         body.get('bundle'), body.get('observation_id'),
+                                                         body.get('checked'))
                 else:
                     self.respond({'error': 'Not found'}, 404)
                     return
@@ -283,6 +294,8 @@ def make_handler(store, rec=None, fetcher=None):
                 self.respond({'error': str(exc)}, 400)
             except sqlite3.Error:
                 self.respond({'error': 'Could not save. Your text is still here; please retry.'}, 503)
+            except OSError as exc:
+                self.respond({'error': f'Could not write local files: {exc.strerror or exc}'}, 500)
     return Handler
 
 
@@ -291,11 +304,13 @@ def main():
     parser.add_argument('--db', type=Path, default=ROOT/'league.db')
     parser.add_argument('--notes', type=Path, default=ROOT/'reviews.db')
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--moments', type=Path, default=MOMENTS, help='Prepared moment bundles for the Watch view')
     args = parser.parse_args()
     try:
         load_dotenv(ROOT/'.env')
         store = ReviewStore(args.db, args.notes)
-        server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(store, recorder.Recorder(args.notes)))
+        server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(store, recorder.Recorder(args.notes),
+                                                                     moments_dir=args.moments))
     except (sqlite3.Error, OSError, ValueError) as exc:
         parser.exit(1, f'Cannot start review app: {exc}\nImport matches first, and check the database path and port.\n')
     print(f'Review app: http://127.0.0.1:{args.port}  (Ctrl+C to stop)', flush=True)

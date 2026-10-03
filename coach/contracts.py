@@ -5,6 +5,7 @@ import re
 MAX_WINDOW_MS = 60_000
 MAX_FRAMES = 8
 MAX_EVENTS = 12
+MAX_FACTS = 32
 MAX_TEXT_CHARS = 24_000
 
 
@@ -36,11 +37,21 @@ EVENT = obj(id=ID, game_ms=MS, source=choice('riot_timeline'),
             killer=text(32, True), victim=text(32, True), assists=array(text(32), 5),
             me=choice('kill', 'death', 'assist', None))
 KNOWLEDGE = obj(id=ID, patch=text(64), text=text(800))
-PACKET = obj(schema_version=choice(1), moment_id=ID, patch=text(64, True),
-             champion=text(32, True), opponent=text(32, True), start_ms=MS, decision_ms=MS,
-             sync_verified=dict(type='boolean'), focus=text(500),
-             frames=array(FRAME, MAX_FRAMES), events=array(EVENT, MAX_EVENTS),
-             knowledge=array(KNOWLEDGE, 4))
+FACT = obj(id=ID, game_ms=MS, source=choice('riot_timeline'),
+           visibility=choice('global_event_not_player_view'),
+           kind=choice('player', 'objective', 'score', 'wards'), statement=text(400))
+# Game state known at the decision; facts may predate the window but never follow it.
+STATE = obj(as_of_ms=MS, sampled_ms=dict(type=['integer', 'null'], minimum=0),
+            my_side=choice('blue', 'red', None), note=text(600), facts=array(FACT, MAX_FACTS))
+PACKET_V1 = obj(schema_version=choice(1), moment_id=ID, patch=text(64, True),
+                champion=text(32, True), opponent=text(32, True), start_ms=MS, decision_ms=MS,
+                sync_verified=dict(type='boolean'), focus=text(500),
+                frames=array(FRAME, MAX_FRAMES), events=array(EVENT, MAX_EVENTS),
+                knowledge=array(KNOWLEDGE, 4))
+# v2 adds Riot timeline state; null means it was not supplied, not that nothing happened.
+PACKET = dict(PACKET_V1, properties=dict(PACKET_V1['properties'], schema_version=choice(2),
+                                         state=dict(anyOf=[STATE, dict(type='null')])),
+              required=PACKET_V1['required'] + ['state'])
 
 
 def observations_schema(sources, verifications):
@@ -111,15 +122,24 @@ def unique_ids(items):
     return set(ids)
 
 
+def state_facts(packet):
+    return (packet.get('state') or {}).get('facts', [])
+
+
 def validate_packet(packet):
-    validate(packet, PACKET)
+    validate(packet, PACKET_V1 if isinstance(packet, dict) and packet.get('schema_version') == 1 else PACKET)
     start, end = packet['start_ms'], packet['decision_ms']
     if not 0 <= end - start <= MAX_WINDOW_MS:
         raise ValueError('Moment must have a window of at most 60 seconds')
-    unique_ids(packet['frames'] + packet['events'] + packet['knowledge'])
+    unique_ids(packet['frames'] + packet['events'] + packet['knowledge'] + state_facts(packet))
     for item in packet['frames'] + packet['events']:
         if not start <= item['game_ms'] <= end:
             raise ValueError('Evidence falls outside the decision window')
+    if packet.get('state') and packet['state']['as_of_ms'] != end:
+        raise ValueError('Timeline state must be taken at the decision time')
+    sampled = (packet.get('state') or {}).get('sampled_ms')
+    if any(item['game_ms'] > end for item in state_facts(packet)) or (sampled is not None and sampled > end):
+        raise ValueError('Timeline state includes facts after the decision')
     if len({f['image_file'] for f in packet['frames']}) != len(packet['frames']):
         raise ValueError('Duplicate frame filenames')
     for rule in packet['knowledge']:
@@ -137,7 +157,7 @@ def validate_observations(observations, packet, model_output=False):
         raise ValueError('Observations belong to another moment')
     frames = {f['id']: f['game_ms'] for f in packet['frames']}
     ids = unique_ids(observations['observations'])
-    if ids & unique_ids(packet['frames'] + packet['events'] + packet['knowledge']):
+    if ids & unique_ids(packet['frames'] + packet['events'] + packet['knowledge'] + state_facts(packet)):
         raise ValueError('Observation ID collides with input evidence')
     for observation in observations['observations']:
         refs = observation['evidence_refs']
@@ -155,7 +175,7 @@ def validate_review(review, packet, observations):
     validate(review, REVIEW)
     if review['moment_id'] != packet['moment_id']:
         raise ValueError('Review belongs to another moment')
-    evidence = unique_ids(observations['observations'] + packet['events'])
+    evidence = unique_ids(observations['observations'] + packet['events'] + state_facts(packet))
     rules = unique_ids(packet['knowledge'])
     cited = review['claims'] + ([review['alternative']] if review['alternative'] else [])
     for claim in cited:

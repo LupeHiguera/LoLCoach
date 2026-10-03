@@ -42,9 +42,21 @@ Review prompts are deliberately limited:
 - Gold/XP/CS differences use matching timestamps for the assigned lane opponent;
   role swaps and later team play need interpretation. Missing comparisons stay missing.
 - Causes are user-entered hypotheses; saved reviews identify whether evidence was
-  timeline data, a recording, or recollection. The UI does not run AI coaching;
+  timeline data, a recording, or recollection. The UI does not run AI models;
   the optional recorder uses the local game-clock endpoint only to start/stop capture
   and estimate sync. A separate CLI model harness is described below.
+
+The **Watch** tab plays the game's linked recording above a map of kills, your deaths
+and coached moments. Coaching is read from model output already prepared by the CLI harness
+(`data/moments/<name>/` with `packet.json`, `observations.json` and `review.json`; use
+`--moments PATH` to change the folder). A bundle appears on a game only when its moment
+ID re-hashes from one of that game's deaths. Each review stays hidden during its lead-up
+and appears when playback reaches its decision time, optionally pausing the video. Every
+claim lists its cited evidence, labelled as a Riot event, a Riot timeline fact, or a model
+observation (unchecked until you press **Mark checked** after seeing it in the video, which
+writes `human_verified` into the bundle). J/K step between moments;
+"Use as focus" copies a practice focus into the focus form without saving it. Post-game
+only: nothing is shown while a game is running.
 
 Verify with `python -m unittest -v`.
 
@@ -146,6 +158,8 @@ On the Windows gaming PC:
 5. After a normal match, run `python fetch_matches.py --count 20` with a valid
    Riot key, then `python recorder.py --link` to link its saved recording. Check
    the recording against the visible game clock. The current OBS clock offset is approximate.
+   Capture waits until the game clock is positive, since the API can report 0:00
+   throughout loading. Restart an already-running recorder after code updates.
    To check a clip: `death_clip_s` in the manifest is where the death should be. Pause
    there and read the game clock. If it differs from the death time (`death_game_ms`),
    the correct offset is `offset_s + (expected − shown)` in seconds, e.g. expecting
@@ -184,6 +198,33 @@ installed, an additional integration test generates a synthetic video and checks
 the extracted MP4 duration. Real OBS capture and sync still need verification on
 the Windows PC before feeding clips into a video model.
 
+## Native HUD and minimap views
+
+`coach.observer` adds local-only crops to a prepared moment without changing its
+packet or timeline facts. Prepare eight timestamps with the existing harness,
+then give explicit `x:y:width:height` crop rectangles in source-video pixels:
+
+```sh
+python -m coach.harness prepare --manifest data/clips/NA1_123456789/manifest.json --moment death-300000 --at-ms 295000 --window-ms 25000 --frames 8 --output data/moments/earlier
+python -m coach.observer prepare --manifest data/clips/NA1_123456789/manifest.json --packet data/moments/earlier/packet.json --hud 1280:1728:1280:432 --minimap 2944:1264:896:896 --output data/moments/earlier-views
+python -m coach.observer observe --bundle data/moments/earlier-views --model LOCAL_VISION_MODEL --output data/moments/earlier-views/observations.json
+python -m coach.observer check-sheet --bundle data/moments/earlier-views --observations data/moments/earlier-views/observations.json --output data/moments/earlier-views/checks.json
+```
+
+Those rectangles are an example for 3840x2160 footage with a bottom-right minimap;
+check their coverage against your HUD layout. Crops retain native resolution.
+Eight timestamps produce 24 local images (whole frame, HUD, minimap), with a 1 MiB
+and 1280x1280-pixel budget per image and a 16 MiB total byte budget. This may need
+more model context than the whole-frame-only path. By default, requests send all
+eight whole frames and only the final timestamp's two crops (10 images). Use
+`observe --crop-frames all` to send all 24. Initial Qwen3.8 requests with both 24
+and 10 images timed out at 300 s; runtime tuning remains pending. `--timeout-s`
+sets the local request timeout; no timeout is counted as a quality result.
+The observer sees no Riot facts;
+reviewers still use the original packet and text observations, without image files.
+The check sheet starts with every claim pending: verify it against the clip before
+using it in a reviewer comparison. Generating the sheet does not verify a claim.
+
 ## Local model harness: one decision at a time
 
 `coach/harness.py` connects to a local model server's `/v1/chat/completions`
@@ -206,7 +247,7 @@ or explicitly choose fewer frames/snippets when needed.
 Try the synthetic preview now, without footage, FFmpeg, a model or credentials:
 
 ```sh
-python -m coach.harness prepare --manifest coach/examples/clip_manifest.json --moment death-300000 --at-ms 295000 --output data/moments/example --dry-run
+python -m coach.harness prepare --manifest coach/examples/clip_manifest.json --moment death-300000 --at-ms 295000 --output data/moments/example --dry-run --no-timeline
 python -m coach.harness observe --packet coach/examples/packet.json --model LOCAL_VISION_MODEL --dry-run
 python -m coach.harness review --packet coach/examples/packet.json --observations coach/examples/observations.json --model LOCAL_COACH_MODEL --dry-run
 python -m coach.harness schema observations
@@ -240,7 +281,8 @@ are rejected before saving, with the `finish_reason` in the error.
 JSON contracts and cross-reference checks live in `coach/contracts.py`:
 
 - `packet.json`: opaque moment ID, patch/champions, bounded events/frames, sync
-  status, focus and selected knowledge. No win/loss, match ID, raw API JSON or history.
+  status, focus, selected knowledge and Riot timeline `state` at the decision.
+  No win/loss, match ID, raw API JSON or history.
 - `observations.json`: visible statements, frame references/timestamps and unknowns.
   Every model statement is labelled `model_observed`; a model can never output
   `human_verified`. After checking a statement against the footage yourself, set
@@ -254,6 +296,13 @@ For game knowledge, `prepare --knowledge selected-rules.json` accepts a JSON lis
 of up to four `{ "id": "rule-1", "patch": "16.18", "text": "..." }` objects.
 Use the packet's exact patch or `general` for patch-independent principles.
 Knowledge is explicitly selected, never an automatic dump of all game information.
+`prepare` reads `league.db` (`--db`) for timeline facts known at `--at-ms`: each
+champion's exact level and ability ranks, gold, CS and map position from the last
+once-a-minute snapshot, the 12 most recent objectives and structures, running
+totals, and ward counts for the previous two minutes. Only events at or before the
+decision are read, including ones from before the window. Items, summoner spells,
+cooldowns, health and ward locations are not in it. The vision pass never receives
+it; the review pass can cite each fact by ID. `--no-timeline` records `state: null`.
 Riot events are labelled global events; they do not establish what you could see.
 Sparse frames can miss movements or mechanics, and unverified sync remains explicit.
 Structural validation verifies references and timestamps, not whether a frame

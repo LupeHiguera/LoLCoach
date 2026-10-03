@@ -499,7 +499,9 @@ class Recorder:
             if game_time is not None:
                 self.misses = 0
                 self.in_game = True
-                if self.recording_id is None and not self.game_failed and self.armed:
+                # The API can answer with zero throughout loading. That is not
+                # a usable sync anchor; wait until the game clock has started.
+                if game_time > 0 and self.recording_id is None and not self.game_failed and self.armed:
                     self._start(game_time)
             else:
                 self.misses += 1

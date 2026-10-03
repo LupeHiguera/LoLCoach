@@ -6,6 +6,7 @@
 <title>LoLCoach · post-game review</title>
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
+<script src="watch.js" defer></script>
 </head>
 <body>
 <div class="frame">
@@ -17,7 +18,7 @@
 </header>
 
 <nav class="tabs" aria-label="Views">
-  <a href="#review" data-view="review">Review</a><a href="#charm" data-view="charm">Charm</a><a href="#profile" data-view="profile">Profile</a>
+  <a href="#review" data-view="review">Review</a><a href="#watch" data-view="watch">Watch</a><a href="#charm" data-view="charm">Charm</a><a href="#profile" data-view="profile">Profile</a>
 </nav>
 
 <div class="layout">
@@ -167,6 +168,48 @@
       </div>
     </section>
   </div>
+</section>
+
+<section class="view content" id="view-watch" aria-labelledby="view-watch-h" hidden>
+  <svg class="filigree" viewBox="0 0 900 16" preserveAspectRatio="none" aria-hidden="true"><path d="M0 8H420M480 8H900M432 8l18-6 18 6-18 6z" fill="none" stroke="currentColor"/><path d="M420 8c4-6 8-6 12 0M468 8c4 6 8 6 12 0" fill="none" stroke="currentColor"/></svg>
+  <h1 class="sr-only" id="view-watch-h">Watch</h1>
+  <section class="box" id="watch-missing" hidden><div class="state" id="watch-missing-text"></div></section>
+
+  <section class="box major" id="watch-main" aria-labelledby="watch-title">
+    <div class="titlebar">
+      <h2 id="watch-title">Recording</h2>
+      <span class="meta" id="watch-clock"></span>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="About video sync" aria-describedby="tip-watch">ⓘ</button><span class="tip" role="tooltip" id="tip-watch">Video time = game time + the recording offset, read from the game clock when OBS started. It can be off by a second or so; check the in-game clock at a coaching point. Coaching appears when playback reaches the decision time it was prepared for. Only shown after the game, never while one is running.</span></span>
+    </div>
+    <div class="box-body">
+      <div class="state" id="watch-video-state" hidden></div>
+      <video id="watch-video" controls preload="metadata" hidden></video>
+      <div class="chart scrub" id="watch-scrub"></div>
+      <div class="actions watch-tools">
+        <button class="btn" type="button" id="watch-prev">Previous coaching</button><button class="btn" type="button" id="watch-next">Next coaching</button>
+        <label class="check"><input type="checkbox" id="watch-pause" checked> Pause when coaching arrives</label>
+        <span class="dim">J / K: previous / next · Space: play / pause</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="box" id="watch-coach" aria-labelledby="watch-coach-h">
+    <div class="titlebar">
+      <h2 id="watch-coach-h">Coaching</h2>
+      <span class="meta" id="watch-count"></span>
+      <span class="tip-wrap"><button class="info" type="button" aria-label="About model coaching" aria-describedby="tip-coach">ⓘ</button><span class="tip" role="tooltip" id="tip-coach">Prepared with python -m coach.harness (prepare, observe, review) and read from data/moments. Each review saw only evidence up to its decision time. Model observations are unchecked unless you marked them human_verified; claims labelled hypothesis are not established. Validation checks structure and citations, not whether a claim is true.</span></span>
+    </div>
+    <div class="watch-grid">
+      <div class="scroll watch-list">
+        <table class="stat">
+          <caption class="sr-only">Coached moments in this game; select a row to watch its lead-up</caption>
+          <thead><tr><th scope="col" class="num">Decision</th><th scope="col">Moment</th><th scope="col">Result</th></tr></thead>
+          <tbody id="watch-moments"></tbody>
+        </table>
+      </div>
+      <div class="advice" id="watch-advice" aria-live="polite"></div>
+    </div>
+  </section>
 </section>
 
 <section class="view content" id="view-charm" aria-labelledby="view-charm-h" hidden>
