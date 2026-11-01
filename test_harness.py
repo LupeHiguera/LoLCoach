@@ -124,8 +124,10 @@ class ContractTests(unittest.TestCase):
                 o['moment_id'] = 'another-moment'
             else:
                 o['observations'][0]['id'] = p['frames'][0]['id']
-            with self.subTest(change=change), self.assertRaises(ValueError):
+            with self.subTest(change=change), self.assertRaises(ValueError) as caught:
                 contracts.validate_observations(o, p, model_output=True)
+            if change == 'collision':
+                self.assertIn('frame ID', str(caught.exception))
 
     def test_stored_evidence_can_be_human_verified_but_model_output_cannot(self):
         p = packet()
@@ -167,6 +169,79 @@ class ContractTests(unittest.TestCase):
         r['claims'][0]['evidence_refs'] = ['rule-1']
         with self.assertRaisesRegex(ValueError, 'moment evidence'):
             contracts.validate_review(r, p, observations(p))
+
+    def test_ids_stay_in_role_and_citations_cannot_cross_them(self):
+        p = packet()
+        frame_id = p['frames'][0]['id']
+        event_id = p['events'][0]['id']
+        o = observations(p)
+        r = review(p)
+        contracts.validate_observations(o, p)
+        contracts.validate_review(r, p, o)
+        r['claims'].append(dict(statement='A timeline kill is in this window.', kind='hypothesis',
+                                evidence_refs=[event_id]))
+        contracts.validate_review(r, p, o)
+
+        mismatched = packet()
+        mismatched['frames'][0]['id'] = 'frame-1'
+        with self.assertRaisesRegex(ValueError, 'game clock'):
+            contracts.validate_packet(mismatched)
+        borrowed = packet()
+        borrowed['moment_id'] = frame_id
+        with self.assertRaisesRegex(ValueError, 'namespace'):
+            contracts.validate_packet(borrowed)
+        borrowed = packet()
+        borrowed['moment_id'] = 'rule-1'
+        borrowed['knowledge'] = [dict(id='rule-1', patch='general', text='Synthetic test rule.')]
+        with self.assertRaisesRegex(ValueError, 'colliding'):
+            contracts.validate_packet(borrowed)
+        borrowed = packet()
+        borrowed['knowledge'] = [dict(id='obs-secret', patch='general', text='Synthetic test rule.')]
+        with self.assertRaisesRegex(ValueError, 'reserved'):
+            contracts.validate_packet(borrowed)
+
+        for label, mutate, pattern in (
+            ('duplicate-obs', lambda item: item['observations'].append(dict(item['observations'][0])), 'Duplicate'),
+            ('cites-event', lambda item: item['observations'][0].__setitem__('evidence_refs', [event_id]), 'non-frame'),
+            ('cites-moment', lambda item: item['observations'][0].__setitem__('evidence_refs', [p['moment_id']]), 'non-frame'),
+            ('cites-self', lambda item: item['observations'][0].__setitem__('evidence_refs', ['obs-1']), 'non-frame'),
+        ):
+            item = observations(p)
+            mutate(item)
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, pattern):
+                contracts.validate_observations(item, p, model_output=True)
+
+        only_event = review(p)
+        only_event['claims'][0]['evidence_refs'] = [event_id]
+        with self.assertRaisesRegex(ValueError, 'observation ID'):
+            contracts.validate_review(only_event, p, o)
+        only_event['claims'][0]['kind'] = 'hypothesis'
+        contracts.validate_review(only_event, p, o)
+        for ref in (frame_id, p['moment_id']):
+            cited = review(p)
+            cited['claims'][0]['evidence_refs'] = [ref]
+            with self.subTest(ref=ref), self.assertRaisesRegex(ValueError, 'frame or moment'):
+                contracts.validate_review(cited, p, o)
+        self.assertTrue(contracts.OBSERVATIONS['properties']['observations']['items']['properties']['id']['pattern']
+                        .startswith('^obs-'))
+        self.assertTrue(contracts.FRAME['properties']['id']['pattern'].startswith('^frame-'))
+
+    def test_reused_frame_id_is_rejected_before_save(self):
+        p = packet()
+        bad = observations(p)
+        bad['observations'][0]['id'] = p['frames'][0]['id']
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, output = root / 'packet.json', root / 'observations.json'
+            source.write_text(json.dumps(p))
+            for frame in p['frames']:
+                (root / frame['image_file']).write_bytes(PNG)
+            with mock.patch.object(harness, 'complete', return_value=bad), \
+                    mock.patch('sys.stderr', new=io.StringIO()), self.assertRaises(SystemExit) as exc:
+                harness.main(['observe', '--packet', str(source), '--model', 'local-test',
+                              '--base-url', 'http://127.0.0.1:9/v1', '--output', str(output)])
+            self.assertEqual(exc.exception.code, 1)
+            self.assertFalse(output.exists())
 
     def test_supported_alternative_requires_tradeoff_and_citations(self):
         p = packet()

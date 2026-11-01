@@ -28,6 +28,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+from coach.sync import stored_live_offset_s
+
 OBS_EXE = Path(r"C:\Program Files\obs-studio\bin\64bit\obs64.exe")
 OBS_ARGS = ["--minimize-to-tray", "--disable-shutdown-check"]
 OBS_HOST, OBS_PORT = "127.0.0.1", 4455
@@ -56,6 +58,14 @@ STATUSES = ("recording", "saved", "linked", "failed")
 NOTE_STOPPED_OUTSIDE = "OBS was stopped outside LoLCoach; recording length is unverified"
 NOTE_RESTARTED = ("OBS was restarted mid-game; kept the first file, whose offset is known. "
                   "The later file is not linked")
+NOTE_LOADING_CLOCK = (
+    "Live Client gameTime was not positive, so no offset was stored. "
+    "A zero reading is the loading screen, not HUD 0:00. "
+    "Set the offset from the visible clock before review.")
+NOTE_RESTARTED_UNSYNCED = (
+    "OBS was restarted mid-game; kept the first file. "
+    "Its offset was not stored because the live clock was not positive. "
+    "The later file is not linked.")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recordings (
@@ -538,14 +548,27 @@ class Recorder:
             self.ensure_obs()
             return
         if now_game is None:
-            now_game = game_time + (started - before)
+            # A positive anchor can be advanced by the start handshake.
+            # A loading-screen 0 plus wall time is still not HUD time.
+            if type(game_time) in (int, float) and game_time > 0:
+                now_game = game_time + (started - before)
+            else:
+                now_game = game_time
+        # A non-positive gameTime is the loading screen. Offset 0 would claim
+        # video 0 is HUD 0:00; stored_live_offset_s returns None instead.
+        try:
+            offset_s = stored_live_offset_s(now_game)
+        except ValueError:
+            offset_s = None
+            now_game = None
+        note = None if offset_s is not None else NOTE_LOADING_CLOCK
+        game_zero_ms = None if now_game is None else int(round((started - now_game) * 1000))
         self.error = None
         with closing(self._db()) as conn, conn:
             cur = conn.execute(
-                "INSERT INTO recordings (path, offset_s, started_at, status, game_zero_ms) "
-                "VALUES (?,?,?,?,?)",
-                (path, round(-now_game, 1), iso(started), "recording",
-                 int(round((started - now_game) * 1000))))
+                "INSERT INTO recordings (path, offset_s, started_at, status, game_zero_ms, note) "
+                "VALUES (?,?,?,?,?,?)",
+                (path, offset_s, iso(started), "recording", game_zero_ms, note))
             self.recording_id = cur.lastrowid
 
     def _failed_row(self, message):
@@ -557,23 +580,33 @@ class Recorder:
     def _stop(self):
         rec_id, self.recording_id = self.recording_id, None
         with closing(self._db()) as conn:
-            row = conn.execute('SELECT path FROM recordings WHERE id = ?', (rec_id,)).fetchone()
+            row = conn.execute('SELECT path, note, offset_s FROM recordings WHERE id = ?',
+                               (rec_id,)).fetchone()
             started_path = row[0] if row else None
+            started_note = row[1] if row else None
+            started_offset = row[2] if row else None
         note = None
         try:
             path = self._obs("StopRecord").get("outputPath")
             status, error = ("saved", None) if path else ("failed", "OBS returned no file path")
             if path and started_path and not same_file(path, started_path):
                 # The offset belongs to the file OBS started for us, not to this one.
-                path, note = started_path, NOTE_RESTARTED
+                # A null offset is not "known"; don't say that it is.
+                path = started_path
+                note = NOTE_RESTARTED if started_offset is not None else NOTE_RESTARTED_UNSYNCED
                 if not recording_file_exists(started_path):
                     status, error = "failed", "The first recording file is missing"
         except (ObsError, OSError) as exc:
             stopped_outside = getattr(exc, "code", None) == OBS_OUTPUT_NOT_RUNNING
             if stopped_outside and recording_file_exists(started_path):
-                path, status, error, note = started_path, "saved", None, NOTE_STOPPED_OUTSIDE
+                path, status, error = started_path, "saved", None
+                note = NOTE_STOPPED_OUTSIDE
+                if started_offset is None and started_note:
+                    note = f"{started_note} {NOTE_STOPPED_OUTSIDE}"
             else:
                 path, status, error = started_path, "failed", f"StopRecord failed: {exc}"
+        if note is None:
+            note = started_note
         self.error = error or note
         with closing(self._db()) as conn, conn:
             conn.execute("UPDATE recordings SET path = ?, status = ?, error = ?, note = ? "

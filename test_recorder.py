@@ -337,6 +337,7 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(self.obs.requests, ["StartRecord"])
         row, = self.rows()
         self.assertEqual((row["status"], row["offset_s"], row["path"]), ("recording", -95.5, None))
+        self.assertIsNone(row["note"])
         self.assertEqual(row["game_zero_ms"], int((self.clock.t - 95.5) * 1000))
         self.assertEqual(rec.status()["game"], "in_game")
         rec.step()                                # still in game: no second StartRecord
@@ -348,6 +349,55 @@ class RecorderTests(unittest.TestCase):
         status = rec.status()
         self.assertEqual((status["game"], status["last"]["status"]), ("idle", "saved"))
         self.assertIsNone(status["last"]["match_id"])
+
+    def test_zero_game_time_does_not_store_offset_zero(self):
+        rec = self.make(Probe(0.0, 0.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        row, = self.rows()
+        self.assertIsNone(row["offset_s"])
+        self.assertEqual(row["note"], recorder.NOTE_LOADING_CLOCK)
+        self.assertEqual(self.obs.requests, ["StartRecord"])
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual((row["status"], row["offset_s"], row["note"]),
+                         ("saved", None, recorder.NOTE_LOADING_CLOCK))
+
+    def test_failed_reread_does_not_turn_a_zero_clock_into_elapsed_time(self):
+        rec = self.make(Probe(0.0, None))
+        ticks = iter([100.0, 105.0])
+        rec.clock = lambda: next(ticks)
+        rec.armed = True
+        rec.step()
+        row, = self.rows()
+        self.assertIsNone(row["offset_s"])
+        self.assertEqual(row["note"], recorder.NOTE_LOADING_CLOCK)
+
+    def test_failed_reread_advances_a_positive_clock_by_the_handshake(self):
+        rec = self.make(Probe(95.0, None))
+        ticks = iter([100.0, 100.4])
+        rec.clock = lambda: next(ticks)
+        rec.armed = True
+        rec.step()
+        self.assertEqual(self.rows()[0]["offset_s"], -95.4)
+
+    def test_restart_does_not_call_a_missing_offset_known(self):
+        video = Path(self.tmp.name) / 'loading.mkv'
+        video.write_bytes(b'loading then game')
+        self.obs.output_path = str(video)
+        self.obs.stop_path = str(Path(self.tmp.name) / 'later.mkv')
+        rec = self.make(Probe(0.0, 0.0, *([None] * MISSES_TO_STOP)))
+        rec.armed = True
+        rec.step()
+        for _ in range(MISSES_TO_STOP):
+            rec.step()
+        row, = self.rows()
+        self.assertEqual(row["status"], "saved")
+        self.assertEqual(row["path"], str(video))
+        self.assertIsNone(row["offset_s"])
+        self.assertEqual(row["note"], recorder.NOTE_RESTARTED_UNSYNCED)
+        self.assertNotIn("offset is known", row["note"])
 
     def test_single_missed_poll_does_not_stop(self):
         rec = self.make(Probe(10.0, 10.0, None, 14.0))
