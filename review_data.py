@@ -9,6 +9,10 @@ import analyze
 import recorder
 
 REASONS = {"uncertain", "dead", "recalling", "fighting", "roaming", "pressured", "other"}
+EVIDENCE = {"stats_only", "recording", "memory"}
+# The next games after a focus is saved, not a rolling window and not a rate.
+FOCUS_HORIZON = 5
+FOCUS_METRICS = {"", "deaths_before"}
 
 
 def connect(path, readonly=False):
@@ -32,8 +36,13 @@ class ReviewStore:
                     updated_at TEXT, PRIMARY KEY(match_id, moment_id));
                 CREATE TABLE IF NOT EXISTS focus (
                     id INTEGER PRIMARY KEY CHECK(id=1), goal TEXT, why_text TEXT,
-                    check_text TEXT, updated_at TEXT);
+                    check_text TEXT, updated_at TEXT, metric TEXT,
+                    before_ms INTEGER, limit_n INTEGER);
             """)
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(focus)")}
+            for name, decl in (("metric", "TEXT"), ("before_ms", "INTEGER"), ("limit_n", "INTEGER")):
+                if name not in cols:
+                    conn.execute(f"ALTER TABLE focus ADD COLUMN {name} {decl}")
             recorder.ensure_schema(conn)
 
     def matches(self):
@@ -114,16 +123,95 @@ class ReviewStore:
             return analyze.profile_report(conn)
 
     def focus(self):
+        """The saved goal, plus a timeline count for games that started after it.
+
+        `progress` is null when the check is only a note. A death count is how many
+        timeline deaths fall before `before_ms`. It is not a cause and not a win rate.
+        """
         with closing(connect(self.notes_path)) as conn:
-            r = conn.execute("SELECT goal, why_text, check_text FROM focus WHERE id=1").fetchone()
-            return dict(r) if r else dict(goal='', why_text='', check_text='')
+            row = conn.execute("""SELECT goal, why_text, check_text, metric, before_ms,
+                limit_n, updated_at FROM focus WHERE id=1""").fetchone()
+        if row is None:
+            return dict(goal='', why_text='', check_text='', metric=None, before_ms=None,
+                        limit_n=None, updated_at=None, progress=None)
+        saved = dict(row)
+        metric = saved['metric'] or None
+        return dict(goal=saved['goal'] or '', why_text=saved['why_text'] or '',
+                    check_text=saved['check_text'] or '', metric=metric,
+                    before_ms=saved['before_ms'], limit_n=saved['limit_n'],
+                    updated_at=saved['updated_at'],
+                    progress=self.focus_progress(saved) if metric else None)
+
+    def focus_progress(self, saved):
+        """First FOCUS_HORIZON Ahri/Zoe mid games that started after this focus."""
+        since = iso_to_ms(saved['updated_at']) if saved.get('updated_at') else None
+        if since is None or saved.get('metric') != 'deaths_before':
+            return None
+        before_ms, limit_n = saved['before_ms'], saved['limit_n']
+        games = []
+        with closing(connect(self.matches_path, True)) as conn:
+            rows = conn.execute("""
+                SELECT m.match_id, m.game_start_ms, m.my_champion, m.opp_champion, m.my_participant_id
+                FROM matches m JOIN timelines t USING(match_id)
+                WHERE m.my_champion IN ('Ahri', 'Zoe') AND m.my_position='MIDDLE'
+                  AND m.game_start_ms > ?
+                ORDER BY m.game_start_ms ASC
+                LIMIT ?
+            """, (since, FOCUS_HORIZON)).fetchall()
+            label = clock_label(before_ms)
+            for item in rows:
+                if item['my_participant_id'] is None:
+                    games.append(dict(
+                        match_id=item['match_id'], game_start_ms=item['game_start_ms'],
+                        my_champion=item['my_champion'], opp_champion=item['opp_champion'],
+                        deaths=None, met=None,
+                        detail=f"Death count unavailable before {label}"))
+                    continue
+                deaths = conn.execute("""SELECT COUNT(*) FROM events
+                    WHERE match_id=? AND type='CHAMPION_KILL' AND victim_id=? AND timestamp_ms < ?""",
+                    (item['match_id'], item['my_participant_id'], before_ms)).fetchone()[0]
+                games.append(dict(
+                    match_id=item['match_id'], game_start_ms=item['game_start_ms'],
+                    my_champion=item['my_champion'], opp_champion=item['opp_champion'],
+                    deaths=deaths, met=deaths <= limit_n,
+                    detail=f"{deaths} death{'' if deaths == 1 else 's'} before {label}"))
+        known = [game for game in games if game['met'] is not None]
+        unknown = len(games) - len(known)
+        if unknown == 1:
+            unknown_note = " 1 game has no participant id, so that count is unknown, not zero."
+        elif unknown:
+            unknown_note = f" {unknown} games have no participant id, so those counts are unknown, not zero."
+        else:
+            unknown_note = ""
+        return dict(horizon=FOCUS_HORIZON, n=len(games), met=sum(game['met'] for game in known),
+                    unknown=unknown, games=games,
+                    note=(f"Timeline deaths before {clock_label(before_ms)} in Ahri or Zoe mid games "
+                          f"that started after this focus was saved. A death at that exact time does not count. "
+                          f"Met means at most {limit_n}. Showing {len(games)} of the next {FOCUS_HORIZON}."
+                          f"{unknown_note} "
+                          "A count is a review prompt, not a cause. Saving the focus again starts the window over."))
 
     def save_focus(self, body):
         values = [text_field(body, key, 1000) for key in ('goal', 'why_text', 'check_text')]
         if not values[0].strip():
             raise ValueError("Write a practice goal first.")
+        metric = text_field(body, 'metric', 40)
+        if metric not in FOCUS_METRICS:
+            raise ValueError("Choose a timeline count or leave it blank.")
+        before_ms = limit_n = None
+        if metric == 'deaths_before':
+            before_ms = body.get('before_ms', 600_000)
+            limit_n = body.get('limit_n', 0)
+            if type(before_ms) is not int or not 60_000 <= before_ms <= 1_200_000:
+                raise ValueError("Count deaths before a time from 1:00 to 20:00.")
+            if type(limit_n) is not int or not 0 <= limit_n <= 20:
+                raise ValueError("The death limit must be a whole number from 0 to 20.")
+        else:
+            metric = None
         with closing(connect(self.notes_path)) as conn, conn:
-            conn.execute("INSERT OR REPLACE INTO focus VALUES (1,?,?,?,?)", (*values, now()))
+            conn.execute("""INSERT OR REPLACE INTO focus
+                (id, goal, why_text, check_text, updated_at, metric, before_ms, limit_n)
+                VALUES (1,?,?,?,?,?,?,?)""", (*values, now(), metric, before_ms, limit_n))
         return self.focus()
 
     def save_review(self, body):
@@ -142,7 +230,7 @@ class ReviewStore:
         observation = text_field(body, 'observation', 3000)
         alternative = text_field(body, 'alternative', 3000)
         evidence = text_field(body, 'evidence', 30)
-        if evidence not in {'stats_only', 'recording', 'memory'}:
+        if evidence not in EVIDENCE:
             raise ValueError("Choose the evidence you reviewed.")
         if not observation.strip():
             raise ValueError("Add an observation before saving.")
@@ -161,6 +249,18 @@ def text_field(body, key, maximum):
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def iso_to_ms(value):
+    moment = datetime.fromisoformat(value)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return int(moment.timestamp() * 1000)
+
+
+def clock_label(ms):
+    """Game clock as M:SS. Used on the focus count, which is a threshold, not a diagnosis."""
+    return f"{ms // 60000}:{(ms // 1000) % 60:02d}"
 
 
 def kill_feed(conn, match_id, me):

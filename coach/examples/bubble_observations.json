@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-bubble",
+  "observations": [
+    {
+      "id": "obs-bubble",
+      "game_ms": 265000,
+      "statement": "Fabricated fixture: a bubble projectile is visible traveling toward Ahri, who is beside her own minion wave. The sleep mark is not yet visible.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-250000", "frame-280000"]
+    }
+  ],
+  "unknowns": ["Fabricated fixture. Clock sync for this moment is unverified. Cooldowns are unknown."]
+}

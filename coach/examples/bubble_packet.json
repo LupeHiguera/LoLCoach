@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-bubble",
+  "patch": "example",
+  "champion": "Zoe",
+  "opponent": "Ahri",
+  "start_ms": 250000,
+  "decision_ms": 280000,
+  "sync_verified": false,
+  "focus": "Bubble line; fabricated fixture",
+  "frames": [
+    {"id": "frame-250000", "game_ms": 250000, "image_file": "frame-250000.png"},
+    {"id": "frame-280000", "game_ms": 280000, "image_file": "frame-280000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 from fetch_matches import SCHEMA, store_match
 from review_app import Fetcher, ReviewStore, fetch_message, make_handler, static_file
-from review_data import find_moments, kill_feed, score
+from review_data import find_moments, iso_to_ms, kill_feed, score
 from test_analyze import ME, match as riot_match
 
 
@@ -366,6 +366,113 @@ class StaticFileTests(unittest.TestCase):
                     '/fonts\a.woff2', '/.env', '/missing.css', '/fonts']:
             with self.subTest(bad=bad):
                 self.assertIsNone(static_file(bad, self.web))
+
+
+class FocusTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db, self.notes = [Path(self.tmp.name) / name for name in ('matches.db', 'reviews.db')]
+        with closing(sqlite3.connect(self.db)) as conn, conn:
+            conn.executescript('''
+                CREATE TABLE matches(match_id TEXT, game_start_ms INTEGER, duration_s INTEGER,
+                patch TEXT, queue_id INTEGER, my_champion TEXT, my_position TEXT, opp_champion TEXT,
+                win INTEGER, my_participant_id INTEGER, opp_participant_id INTEGER);
+                CREATE TABLE timelines(match_id TEXT, frame_interval_ms INTEGER);
+                CREATE TABLE events(match_id TEXT, type TEXT, timestamp_ms INTEGER, victim_id INTEGER);
+            ''')
+        self.store = ReviewStore(self.db, self.notes)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add(self, match_id, start, champion='Ahri', position='MIDDLE', deaths=(),
+            others=(), participant=1, opponent='Zoe'):
+        with closing(sqlite3.connect(self.db)) as conn, conn:
+            conn.execute("INSERT INTO matches VALUES (?,?,1200,'16.18',420,?,?,?,1,?,6)",
+                         (match_id, start, champion, position, opponent, participant))
+            conn.execute("INSERT INTO timelines VALUES (?,60000)", (match_id,))
+            if participant is not None:
+                conn.executemany("INSERT INTO events VALUES (?,?,?,?)",
+                                 [(match_id, 'CHAMPION_KILL', ts, participant) for ts in deaths])
+            conn.executemany("INSERT INTO events VALUES (?,?,?,6)",
+                             [(match_id, 'CHAMPION_KILL', ts) for ts in others])
+
+    def test_deaths_before_counts_only_the_next_five_games(self):
+        self.add('already-played', 1_000, deaths=(10_000,))
+        saved = self.store.save_focus(dict(goal='0 deaths before 10:00', why_text='Timeline only.',
+                                           check_text='At most 0 before 10:00.', metric='deaths_before',
+                                           before_ms=600_000, limit_n=0))
+        since = iso_to_ms(saved['updated_at'])
+        self.add('early', since + 1_000, deaths=(300_000,))
+        self.add('clean', since + 2_000)
+        self.add('late-death', since + 3_000, deaths=(700_000,))
+        self.add('support', since + 4_000, champion='Lulu', position='UTILITY', deaths=(10_000,))
+        self.add('zoe', since + 5_000, champion='Zoe', deaths=(100_000,))
+        self.add('sixth', since + 6_000)
+        self.add('seventh', since + 7_000, deaths=(10_000,))
+        progress = self.store.focus()['progress']
+        self.assertEqual([game['match_id'] for game in progress['games']],
+                         ['early', 'clean', 'late-death', 'zoe', 'sixth'])
+        self.assertEqual((progress['n'], progress['met'], progress['horizon']), (5, 3, 5))
+        self.assertEqual(progress['games'][0]['detail'], '1 death before 10:00')
+        self.assertFalse(progress['games'][0]['met'])
+        self.assertTrue(progress['games'][1]['met'])
+        self.assertIn('exact time does not count', progress['note'])
+        self.assertNotIn('participant id', progress['note'])
+
+    def test_a_note_is_not_graded_and_bad_counts_are_rejected(self):
+        saved = self.store.save_focus(dict(goal='Watch the wave'))
+        self.assertIsNone(saved['metric'])
+        self.assertIsNone(saved['progress'])
+        for body in (dict(goal='x', metric='charm_rate'),
+                     dict(goal='x', metric='deaths_before', before_ms=True, limit_n=0),
+                     dict(goal='x', metric='deaths_before', before_ms=1000, limit_n=0),
+                     dict(goal='x', metric='deaths_before', before_ms=600_000, limit_n=-1)):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                self.store.save_focus(body)
+
+    def test_older_focus_table_gains_count_columns(self):
+        notes = Path(self.tmp.name) / 'old-notes.db'
+        with closing(sqlite3.connect(notes)) as conn, conn:
+            conn.execute("""CREATE TABLE focus (id INTEGER PRIMARY KEY CHECK(id=1), goal TEXT,
+                why_text TEXT, check_text TEXT, updated_at TEXT)""")
+            conn.execute("INSERT INTO focus VALUES (1,'old goal','why','check','2020-01-01T00:00:00+00:00')")
+        opened = ReviewStore(self.db, notes)
+        saved = opened.focus()
+        self.assertEqual(saved['goal'], 'old goal')
+        self.assertIsNone(saved['progress'])
+        graded = opened.save_focus(dict(goal='old goal', metric='deaths_before'))
+        self.assertEqual((graded['before_ms'], graded['limit_n'], graded['progress']['n']), (600_000, 0, 0))
+
+    def test_threshold_edges_unknown_id_and_resave_restarts_the_window(self):
+        with self.assertRaisesRegex(ValueError, 'practice goal'):
+            self.store.save_focus(dict(goal='   ', metric='deaths_before'))
+        saved = self.store.save_focus(dict(goal='At most 1 death before 10:00', metric='deaths_before',
+                                           before_ms=600_000, limit_n=1))
+        since = iso_to_ms(saved['updated_at'])
+        self.add('same-instant', since, deaths=(1_000,))
+        self.add('on-the-minute', since + 1, deaths=(600_000,))
+        self.add('just-under', since + 2, deaths=(599_999, 100_000))
+        self.add('someone-else', since + 3, others=(10_000,))
+        self.add('no-opponent', since + 4, opponent=None)
+        self.add('no-id', since + 5, participant=None, deaths=(1_000,))
+        progress = self.store.focus()['progress']
+        by_id = {game['match_id']: game for game in progress['games']}
+        self.assertNotIn('same-instant', by_id)
+        self.assertEqual((by_id['on-the-minute']['deaths'], by_id['on-the-minute']['met']), (0, True))
+        self.assertEqual((by_id['just-under']['deaths'], by_id['just-under']['met']), (2, False))
+        self.assertEqual(by_id['someone-else']['deaths'], 0)
+        self.assertIsNone(by_id['no-opponent']['opp_champion'])
+        self.assertIsNone(by_id['no-id']['deaths'])
+        self.assertIsNone(by_id['no-id']['met'])
+        self.assertEqual(progress['unknown'], 1)
+        self.assertIn('1 game has no participant id', progress['note'])
+        self.assertEqual(progress['met'], 3)  # on-the-minute, someone-else, no-opponent; just-under is over the limit
+        with mock.patch('review_data.now', return_value='2099-01-01T00:00:00+00:00'):
+            again = self.store.save_focus(dict(goal='At most 1 death before 10:00', metric='deaths_before',
+                                               before_ms=600_000, limit_n=1))
+        self.assertEqual(again['progress']['n'], 0)
+        self.assertGreater(iso_to_ms(again['updated_at']), since)
 
 
 if __name__ == '__main__':

@@ -20,6 +20,69 @@
       "observations": "position_observations.json",
       "expected_assessment": "reviewable",
       "cloud_approved_sha256": null
+    },
+    {
+      "id": "zoe-unreadable",
+      "group": "synthetic-game-3",
+      "split": "test",
+      "packet": "zoe_packet.json",
+      "observations": "zoe_observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "charm-line-checked",
+      "group": "synthetic-game-4",
+      "split": "test",
+      "packet": "charm_packet.json",
+      "observations": "charm_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "walk-between-frames",
+      "group": "synthetic-game-5",
+      "split": "test",
+      "packet": "walk_packet.json",
+      "observations": "walk_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "recall-channel",
+      "group": "synthetic-game-6",
+      "split": "test",
+      "packet": "recall_packet.json",
+      "observations": "recall_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "stable-lane-control",
+      "group": "synthetic-game-7",
+      "split": "test",
+      "packet": "control_packet.json",
+      "observations": "control_observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "bubble-in-flight",
+      "group": "synthetic-game-8",
+      "split": "test",
+      "packet": "bubble_packet.json",
+      "observations": "bubble_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "dev-control",
+      "group": "synthetic-game-dev",
+      "split": "dev",
+      "packet": "packet.json",
+      "observations": "observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
     }
   ]
 }

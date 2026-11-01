@@ -28,9 +28,13 @@ def choice(*values):
 
 
 ID = text(128, pattern=r'^[A-Za-z0-9_-]+$')
+# Frame IDs are the packet's timestamps. Observation IDs are a separate space so a
+# model cannot reuse frame-295000 as obs id and as evidence at the same time.
+FRAME_ID = text(128, pattern=r'^frame-[0-9]+$')
+OBS_ID = text(128, pattern=r'^obs-[A-Za-z0-9_-]+$')
 MS = dict(type='integer', minimum=0)
 REFS = array(ID, 8, 1)
-FRAME = obj(id=ID, game_ms=MS, image_file=text(160, pattern=r'^frame-[0-9]+\.png$'))
+FRAME = obj(id=FRAME_ID, game_ms=MS, image_file=text(160, pattern=r'^frame-[0-9]+\.png$'))
 EVENT = obj(id=ID, game_ms=MS, source=choice('riot_timeline'),
             visibility=choice('global_event_not_player_view'), side=choice('ally', 'enemy', None),
             killer=text(32, True), victim=text(32, True), assists=array(text(32), 5),
@@ -45,7 +49,7 @@ PACKET = obj(schema_version=choice(1), moment_id=ID, patch=text(64, True),
 
 def observations_schema(sources, verifications):
     return obj(schema_version=choice(1), moment_id=ID,
-               observations=array(obj(id=ID, game_ms=MS, statement=text(),
+               observations=array(obj(id=OBS_ID, game_ms=MS, statement=text(),
                                       source=choice(*sources),
                                       verification=choice(*verifications), evidence_refs=REFS), 16),
                unknowns=array(text(300), 12))
@@ -157,9 +161,12 @@ def validate_review(review, packet, observations):
         raise ValueError('Review belongs to another moment')
     evidence = unique_ids(observations['observations'] + packet['events'])
     rules = unique_ids(packet['knowledge'])
+    frame_ids = {frame['id'] for frame in packet['frames']}
     cited = review['claims'] + ([review['alternative']] if review['alternative'] else [])
     for claim in cited:
         refs = claim['evidence_refs']
+        if set(refs) & frame_ids:
+            raise ValueError('Cite observation or event IDs, not frame IDs')
         if len(refs) != len(set(refs)) or not set(refs) <= evidence | rules or not set(refs) & evidence:
             raise ValueError('Claim needs valid moment evidence, not just a game rule')
     if review['assessment'] == 'needs_more_evidence':

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-walk",
+  "observations": [
+    {
+      "id": "obs-walk",
+      "game_ms": 415000,
+      "statement": "Fabricated fixture: between the two frames Ahri moves from beside her turret toward the river, while Zoe remains visible in front of her.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-400000", "frame-430000"]
+    }
+  ],
+  "unknowns": ["Fabricated fixture. Cooldowns and the jungler are not visible."]
+}

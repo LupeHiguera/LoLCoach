@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-recall",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Orianna",
+  "start_ms": 500000,
+  "decision_ms": 530000,
+  "sync_verified": true,
+  "focus": "Recall timing; fabricated fixture with a human-checked observation",
+  "frames": [
+    {"id": "frame-500000", "game_ms": 500000, "image_file": "frame-500000.png"},
+    {"id": "frame-530000", "game_ms": 530000, "image_file": "frame-530000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

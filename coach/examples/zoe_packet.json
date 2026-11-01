@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-zoe",
+  "patch": "example",
+  "champion": "Zoe",
+  "opponent": "Ahri",
+  "start_ms": 100000,
+  "decision_ms": 140000,
+  "sync_verified": false,
+  "focus": "Deaths and positioning; fabricated Zoe fixture",
+  "frames": [
+    {"id": "frame-100000", "game_ms": 100000, "image_file": "frame-100000.png"},
+    {"id": "frame-140000", "game_ms": 140000, "image_file": "frame-140000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

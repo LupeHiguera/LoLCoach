@@ -308,6 +308,11 @@ legend { font: 600 15px var(--display); text-transform: uppercase; color: var(--
 /* ---------- sidebar ---------- */
 .focus-goal { font-weight: bold; color: var(--text); }
 .focus-check { color: var(--ash); }
+.focus-progress { margin-top: 8px; color: var(--ash); font-size: 12px; }
+.focus-progress table { width: 100%; border-collapse: collapse; }
+.focus-progress td { padding: 2px 4px 2px 0; vertical-align: top; }
+.focus-progress .focus-note { margin: 4px 0 0; }
+.evidence-tag { display: block; color: var(--ash); font-size: 12px; }
 #focus-form { display: grid; gap: 8px; margin-top: 8px; }
 .filters { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 8px; border-bottom: 1px solid var(--ink-line); }
 .filters label { color: var(--ash); }

@@ -5,7 +5,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from export_demo import ScrubError, build, check_scrubbed, write
+from export_demo import ScrubError, build, check_scrubbed, public_focus, write
 from fetch_matches import SCHEMA, store_match, store_timeline
 from review_data import ReviewStore
 
@@ -94,7 +94,9 @@ class ExportTests(unittest.TestCase):
         self.assertEqual([g["match_id"] for g in charm["games"]], ["demo-1", "demo-2"])
         self.assertEqual(charm["summary"]["all"]["n"], 2)
         self.assertEqual([c["champion"] for c in files["profile.json"]["champions"]], ["Ahri"])
-        self.assertEqual(files["focus.json"], {"goal": "", "why_text": "", "check_text": ""})
+        self.assertEqual(files["focus.json"], {"goal": "", "why_text": "", "check_text": "",
+                                              "metric": None, "before_ms": None, "limit_n": None,
+                                              "updated_at": None, "progress": None})
         self.assertEqual(files["recorder.json"]["armed"], False)
 
     def test_include_notes_is_opt_in_and_still_checked(self):
@@ -113,6 +115,18 @@ class ExportTests(unittest.TestCase):
         feed = {"match/demo-1.json": {"kills": [{"killer": "Lee Sin", "victim": "Ahri",
                                                  "assists": ["Jinx"]}]}}
         check_scrubbed(files | feed, {"Lee Sin", "Jinx"})  # kill-feed champions too
+
+    def test_exported_focus_recounts_unknown_games_in_the_snapshot(self):
+        focus = {"goal": "At most 1 death before 10:00", "progress": {
+            "horizon": 5, "n": 2, "met": 1, "unknown": 1,
+            "games": [
+                {"match_id": "keep", "met": True, "deaths": 0},
+                {"match_id": "drop", "met": None, "deaths": None},
+            ]}}
+        exported = public_focus(focus, {"keep": "demo-1"})
+        progress = exported["progress"]
+        self.assertEqual([game["match_id"] for game in progress["games"]], ["demo-1"])
+        self.assertEqual((progress["n"], progress["met"], progress["unknown"]), (1, 1, 0))
 
     def test_source_databases_unchanged(self):
         before = self.db.read_bytes()

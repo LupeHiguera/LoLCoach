@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-charm",
+  "observations": [
+    {
+      "id": "obs-charm-line",
+      "game_ms": 210000,
+      "statement": "Fabricated fixture, checked against the stills: Ahri's charm indicator points at a melee minion. Syndra is visible to the side of that line, not on it. No charm hit marker is visible.",
+      "source": "human",
+      "verification": "human_verified",
+      "evidence_refs": ["frame-200000", "frame-220000"]
+    }
+  ],
+  "unknowns": ["Fabricated fixture. Charm cooldown and off-screen enemies are unknown."]
+}

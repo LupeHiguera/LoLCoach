@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-recall",
+  "observations": [
+    {
+      "id": "obs-recall",
+      "game_ms": 530000,
+      "statement": "Fabricated fixture, checked against the stills: a recall channel is visible and Ahri is inside her turret ring. Orianna is not in the frame.",
+      "source": "human",
+      "verification": "human_verified",
+      "evidence_refs": ["frame-530000"]
+    }
+  ],
+  "unknowns": ["Fabricated fixture. Enemy arrival time during the channel is unknown."]
+}

@@ -25,6 +25,10 @@ demo (UI agent). Change this file first, then the code.
   `source: local_vision`, `verification: model_observed`. Stored evidence may also use
   `verification: human_verified` (checked by the player) and `source: human`
   (which requires `human_verified`).
+  Observation IDs match `obs-…`. Frame IDs match `frame-<game ms>` and are not
+  valid observation IDs. An observation cites frame IDs only. A review cites
+  observation or event IDs, not frame IDs. Reusing a frame ID as an observation
+  ID is rejected.
 - **review**: the same moment ID, assessment (`reviewable` or `needs_more_evidence`),
   cited observations/hypotheses, an optional alternative with tradeoff and citations,
   optional practice focus, and missing evidence. Insufficient evidence means no
@@ -81,7 +85,10 @@ validity and expected-assessment agreement do not establish factual correctness.
 
 `coach.cloud` is separate from the local harness. It permits only text-only
 GPT-6.1 Sol Responses requests to fixed OpenAI HTTPS, with `store:false`, fresh
-system/user context, no tools/history/media, bounded output, and no redirects,
+system/user context, no tools/history/media, bounded output, and no redirects.
+A request is refused before the network if it contains an image, audio or video
+key, a `data:image` / `data:audio` / `data:video` URL, or a footage filename.
+Vision benchmarks stay on loopback.
 proxies or automatic retries. `preview-cloud` prints exact text and its canonical
 SHA-256. A human must check every text field for identifiers before putting that
 hash in the case. Obvious private markers/paths/URLs are rejected automatically;
@@ -230,17 +237,45 @@ table are ever served.
 
 ```json
 {"goal": "0 deaths before 10:00", "why_text": "3 of my last 5 games...",
- "check_text": "Deaths before 10:00 in the next 5 games"}
+ "check_text": "Deaths before 10:00 in the next 5 games",
+ "metric": "deaths_before", "before_ms": 600000, "limit_n": 0,
+ "updated_at": "2026-10-02T18:00:00+00:00",
+ "progress": {"horizon": 5, "n": 2, "met": 1, "games": [
+   {"match_id": "NA1_1", "game_start_ms": 1789967389349, "my_champion": "Ahri",
+    "opp_champion": "Akali", "deaths": 1, "met": false,
+    "detail": "1 death before 10:00"}
+ ], "note": "Timeline deaths before 10:00 ... A count is a review prompt, not a cause."}}
 ```
 
-All three are `""` when no focus has been saved.
+`goal`, `why_text` and `check_text` are `""` when no focus has been saved. `metric`,
+`before_ms`, `limit_n`, `updated_at` and `progress` are then `null`.
+
+- `metric`: `deaths_before` or `null`. `null` means the check line is only a note.
+- `before_ms`: game-clock ms. Deaths with `timestamp_ms` strictly below this count.
+- `limit_n`: the count is met when deaths before `before_ms` are at most this number.
+- `progress` (**new**): `null` unless `metric` is set. Otherwise the first
+  `horizon` (5) Ahri or Zoe mid games whose `game_start_ms` is **after**
+  `updated_at`, oldest first. A game that started at the same millisecond is not
+  included. Saving again replaces `updated_at` and the window starts over; earlier
+  games drop out. `n` is how many of those games are imported. `met` counts only
+  games whose death total is known and at most `limit_n`. A death at exactly
+  `before_ms` does not count. `games[].deaths` is `null` when `my_participant_id`
+  is missing; that game is `met: null` and included in `unknown`, not treated as
+  zero. `opp_champion` can be `null`. `note` is the one caveat for this count.
 
 ## POST /api/focus (current)
 
-Body: `{"goal": str ≤1000, "why_text": str ≤1000, "check_text": str ≤1000}`. Strings
-are trimmed. Missing keys count as `""`. Response: the saved focus (same shape as GET).
-400 `"Write a practice goal first."` if `goal` is blank; 400
-`"Invalid or too long: <key>"` if a value is not a string or too long.
+Body: `{"goal": str ≤1000, "why_text": str ≤1000, "check_text": str ≤1000,
+"metric": "" | "deaths_before", "before_ms": int, "limit_n": int}`. Strings are
+trimmed. Missing string keys count as `""`. Response: the saved focus (same shape
+as GET). Saving replaces `updated_at`, so the five-game window starts over.
+
+400 `"Write a practice goal first."` if `goal` is blank. 400
+`"Invalid or too long: <key>"` if a string value is not a string or too long.
+400 `"Choose a timeline count or leave it blank."` for any other `metric`.
+When `metric` is `deaths_before`, `before_ms` defaults to `600000` and `limit_n`
+to `0`. 400 if `before_ms` is not an integer from 60000 to 1200000, or `limit_n`
+is not an integer from 0 to 20. Booleans are rejected.
 
 ## POST /api/reviews (current)
 
