@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-dev-followup",
+  "observations": [
+    {
+      "id": "obs-dev-follow",
+      "game_ms": 200000,
+      "statement": "Fabricated and marked human-checked for this fixture only: the mid champion is under her turret. The opponent is visible at the river entrance of the cited frame.",
+      "source": "human",
+      "verification": "human_verified",
+      "evidence_refs": ["frame-200000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture, not a recording.",
+    "Whether that river entrance was warded is unknown."
+  ]
+}

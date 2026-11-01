@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-window-bounds",
+  "observations": [
+    {
+      "id": "obs-span",
+      "game_ms": 150000,
+      "statement": "Fabricated model note: the two cited frames show a lane. This fixture does not name the units in it.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-120000", "frame-180000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture, not a recording.",
+    "Champion, opponent, and patch were left empty in this example.",
+    "Game-clock alignment is not verified."
+  ]
+}

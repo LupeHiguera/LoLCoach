@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-event-without-view",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 295000,
+  "decision_ms": 300000,
+  "sync_verified": false,
+  "focus": "Deaths and positioning; fabricated timeline row without a visual note.",
+  "frames": [
+    {
+      "id": "frame-295000",
+      "game_ms": 295000,
+      "image_file": "frame-295000.png"
+    },
+    {
+      "id": "frame-300000",
+      "game_ms": 300000,
+      "image_file": "frame-300000.png"
+    }
+  ],
+  "events": [
+    {
+      "id": "event-300000-0",
+      "game_ms": 300000,
+      "source": "riot_timeline",
+      "visibility": "global_event_not_player_view",
+      "side": "enemy",
+      "killer": "Syndra",
+      "victim": "Ahri",
+      "assists": [],
+      "me": "death"
+    }
+  ],
+  "knowledge": []
+}

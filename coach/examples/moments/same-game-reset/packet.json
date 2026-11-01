@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-same-game-reset",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Akali",
+  "start_ms": 400000,
+  "decision_ms": 430000,
+  "sync_verified": true,
+  "focus": "Deaths and positioning; fabricated later moment in the same example game.",
+  "frames": [
+    {
+      "id": "frame-400000",
+      "game_ms": 400000,
+      "image_file": "frame-400000.png"
+    },
+    {
+      "id": "frame-415000",
+      "game_ms": 415000,
+      "image_file": "frame-415000.png"
+    },
+    {
+      "id": "frame-430000",
+      "game_ms": 430000,
+      "image_file": "frame-430000.png"
+    }
+  ],
+  "events": [],
+  "knowledge": []
+}

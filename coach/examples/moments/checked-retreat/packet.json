@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-checked-retreat",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Akali",
+  "start_ms": 500000,
+  "decision_ms": 530000,
+  "sync_verified": true,
+  "focus": "Fabricated retreat check.",
+  "frames": [
+    {
+      "id": "frame-500000",
+      "game_ms": 500000,
+      "image_file": "frame-500000.png"
+    },
+    {
+      "id": "frame-510000",
+      "game_ms": 510000,
+      "image_file": "frame-510000.png"
+    },
+    {
+      "id": "frame-520000",
+      "game_ms": 520000,
+      "image_file": "frame-520000.png"
+    },
+    {
+      "id": "frame-530000",
+      "game_ms": 530000,
+      "image_file": "frame-530000.png"
+    }
+  ],
+  "events": [
+    {
+      "id": "event-525000-0",
+      "game_ms": 525000,
+      "source": "riot_timeline",
+      "visibility": "global_event_not_player_view",
+      "side": "ally",
+      "killer": "Ahri",
+      "victim": "Akali",
+      "assists": ["Zoe"],
+      "me": "kill"
+    }
+  ],
+  "knowledge": [
+    {
+      "id": "rule-turret",
+      "patch": "example",
+      "text": "Fabricated note tied to the example patch string: this text is selected knowledge, not a measurement of turret range."
+    }
+  ]
+}

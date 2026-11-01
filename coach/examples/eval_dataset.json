@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "id": "synthetic-coach-smoke",
+  "id": "synthetic-moment-fixtures",
   "synthetic": true,
   "cases": [
     {
@@ -19,6 +19,69 @@
       "packet": "position_packet.json",
       "observations": "position_observations.json",
       "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "same-game-reset",
+      "group": "synthetic-game-2",
+      "split": "test",
+      "packet": "moments/same-game-reset/packet.json",
+      "observations": "moments/same-game-reset/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "unlabelled-trade",
+      "group": "synthetic-game-3",
+      "split": "test",
+      "packet": "moments/unlabelled-trade/packet.json",
+      "observations": "moments/unlabelled-trade/observations.json",
+      "expected_assessment": null,
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "event-without-view",
+      "group": "synthetic-game-4",
+      "split": "test",
+      "packet": "moments/event-without-view/packet.json",
+      "observations": "moments/event-without-view/observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "checked-retreat",
+      "group": "synthetic-game-5",
+      "split": "test",
+      "packet": "moments/checked-retreat/packet.json",
+      "observations": "moments/checked-retreat/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "dev-opening",
+      "group": "synthetic-game-dev",
+      "split": "dev",
+      "packet": "moments/dev-opening/packet.json",
+      "observations": "moments/dev-opening/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "dev-followup",
+      "group": "synthetic-game-dev",
+      "split": "dev",
+      "packet": "moments/dev-followup/packet.json",
+      "observations": "moments/dev-followup/observations.json",
+      "expected_assessment": null,
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "dev-window-bounds",
+      "group": "synthetic-game-dev-edges",
+      "split": "dev",
+      "packet": "moments/dev-window-bounds/packet.json",
+      "observations": "moments/dev-window-bounds/observations.json",
+      "expected_assessment": null,
       "cloud_approved_sha256": null
     }
   ]
