@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-clock-unread",
+  "observations": [
+    {
+      "id": "obs-clock",
+      "game_ms": 60000,
+      "statement": "Synthetic fixture: the HUD clock digits are not readable in these frames, so the video offset cannot be checked.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-60000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture. No gameplay judgement is supported until a clock reading exists."
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-held-wave",
+  "observations": [
+    {
+      "id": "obs-hold",
+      "game_ms": 190000,
+      "statement": "Synthetic control: Ahri is at her turret, the wave is even, and no enemy is visible. Holding the wave here is an ordinary decision, not a labelled mistake.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-190000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture. model_observed is not a human check, and the recording offset is unverified."
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-held-wave",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 180000,
+  "decision_ms": 190000,
+  "sync_verified": false,
+  "focus": "Hold the wave when the lane is even",
+  "frames": [
+    {"id": "frame-180000", "game_ms": 180000, "image_file": "frame-180000.png"},
+    {"id": "frame-190000", "game_ms": 190000, "image_file": "frame-190000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

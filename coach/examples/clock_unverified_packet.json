@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-clock-unread",
+  "patch": null,
+  "champion": "Ahri",
+  "opponent": null,
+  "start_ms": 50000,
+  "decision_ms": 60000,
+  "sync_verified": false,
+  "focus": "Do not judge a clip when the clock was not read",
+  "frames": [
+    {"id": "frame-50000", "game_ms": 50000, "image_file": "frame-50000.png"},
+    {"id": "frame-60000", "game_ms": 60000, "image_file": "frame-60000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

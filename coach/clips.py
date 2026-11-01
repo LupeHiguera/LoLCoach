@@ -13,6 +13,7 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
+from coach.privacy import assert_clean
 from review_data import connect, kill_feed
 
 BEFORE_S = 60.0
@@ -20,6 +21,9 @@ AFTER_S = 10.0
 SYNC_NOTE = ("video seconds = game seconds + offset_s. Offset is unverified; "
              "check the visible game clock before interpreting a clip. "
              "One offset assumes continuous footage with no cuts or pauses.")
+# Published manifests keep these fields only. Names, PUUIDs, paths, and raw JSON stay out.
+PUBLIC_MATCH_KEYS = ('match_id', 'patch', 'my_champion', 'opp_champion', 'duration_s')
+PUBLIC_EVENT_KEYS = ('time', 'side', 'killer', 'victim', 'me', 'assists', 'x', 'y')
 
 
 def match_evidence(conn, match_id):
@@ -46,6 +50,18 @@ def linked_video(notes_path, match_id):
         raise ValueError("No finished recording linked. Run recorder.py --link "
                          "after fetching, or supply --video and --offset")
     return Path(row['path']).resolve(), row['offset_s']
+
+
+def public_match(match):
+    """Match facts for a manifest. Extra keys, including raw JSON, are dropped."""
+    if 'match_id' not in match or 'duration_s' not in match:
+        raise ValueError('Match evidence is missing required fields')
+    return {key: match[key] for key in PUBLIC_MATCH_KEYS if key in match}
+
+
+def public_event(event):
+    """One kill-feed row. Player identifiers on the event do not survive."""
+    return {key: event[key] for key in PUBLIC_EVENT_KEYS if key in event}
 
 
 def positive(value, label, allow_zero=False):
@@ -83,6 +99,12 @@ def plan_clips(match, events, offset_s, duration_s, before_s=BEFORE_S, after_s=A
             continue
         actual_start_ms = (start - offset_s) * 1000
         actual_end_ms = (end - offset_s) * 1000
+        window = []
+        for row_event in events:
+            if actual_start_ms <= row_event['time'] <= actual_end_ms:
+                row = public_event(row_event)
+                row['clip_s'] = (row_event['time'] - actual_start_ms) / 1000
+                window.append(row)
         clips.append(dict(
             moment_id=moment_id, file=f'{moment_id}.mp4', death_game_ms=ts,
             source_start_s=start, source_end_s=end,
@@ -90,13 +112,14 @@ def plan_clips(match, events, offset_s, duration_s, before_s=BEFORE_S, after_s=A
             death_clip_s=source_death - start,
             truncated_before=start > game_start + offset_s,
             truncated_after=end < game_end + offset_s,
-            events=[dict(e, clip_s=(e['time'] - actual_start_ms) / 1000)
-                    for e in events if actual_start_ms <= e['time'] <= actual_end_ms]))
-    return dict(schema_version=1, match=match,
-                sync=dict(offset_s=offset_s, verified=False, note=SYNC_NOTE),
-                requested_window=dict(before_s=before_s, after_s=after_s),
-                evidence_note='Kill events are Riot timeline facts, not causes or visibility at the time.',
-                clips=clips, skipped=skipped)
+            events=window))
+    manifest = dict(schema_version=1, match=public_match(match),
+                    sync=dict(offset_s=offset_s, verified=False, note=SYNC_NOTE),
+                    requested_window=dict(before_s=before_s, after_s=after_s),
+                    evidence_note='Kill events are Riot timeline facts, not causes or visibility at the time.',
+                    clips=clips, skipped=skipped)
+    assert_clean(manifest, 'Clip manifest')
+    return manifest
 
 
 def run_media(command):

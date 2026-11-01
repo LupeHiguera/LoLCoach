@@ -20,6 +20,24 @@
       "observations": "position_observations.json",
       "expected_assessment": "reviewable",
       "cloud_approved_sha256": null
+    },
+    {
+      "id": "clock-unverified",
+      "group": "synthetic-game-3",
+      "split": "dev",
+      "packet": "clock_unverified_packet.json",
+      "observations": "clock_unverified_observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "held-wave",
+      "group": "synthetic-game-4",
+      "split": "dev",
+      "packet": "held_wave_packet.json",
+      "observations": "held_wave_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
     }
   ]
 }

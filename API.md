@@ -233,7 +233,9 @@ table are ever served.
  "check_text": "Deaths before 10:00 in the next 5 games"}
 ```
 
-All three are `""` when no focus has been saved.
+All three are `""` when no focus has been saved. The page shows the goal, an evidence
+line (`why_text`), and the check. It does not add a grade: "Not graded." means later
+games have not been scored.
 
 ## POST /api/focus (current)
 
@@ -261,7 +263,7 @@ Create or replace the note for one moment (key: `match_id` + `moment_id`).
 | `reason` | `uncertain` `dead` `recalling` `fighting` `roaming` `pressured` `other` |
 | `observation` | non-empty string ≤3000 |
 | `alternative` | string ≤3000 |
-| `evidence` | `stats_only` `recording` `memory` |
+| `evidence` | `stats_only` `recording` `memory`. The review page labels these Timeline, Recording, and Recollection. Stored values do not change. `model_observed` and `human_verified` are not written by this form. |
 
 Response: `{"saved": true}`.
 

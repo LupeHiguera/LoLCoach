@@ -63,6 +63,10 @@ def load_dataset(path):
         packet = harness.read_json(within(path.parent, item['packet']))
         observations = harness.read_json(within(path.parent, item['observations']))
         contracts.validate_observations(observations, packet)
+        for observation in observations['observations']:
+            # Dataset labels use obs- so a frame id cannot stand in for an observation.
+            if not observation['id'].startswith('obs-'):
+                raise ValueError('Observation IDs in a dataset must start with obs-')
         cases.append(dict(spec=item, packet=packet, observations=observations))
     return data, cases
 

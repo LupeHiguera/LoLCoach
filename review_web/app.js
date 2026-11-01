@@ -12,7 +12,7 @@ const isoDay = ms => { const d = new Date(ms); return `${d.getFullYear()}-${Stri
 const hhmm = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 const QUEUES = {420: 'Ranked solo/duo', 440: 'Ranked flex', 400: 'Normal draft'};
 const METRICS = {gold_diff: 'Gold', xp_diff: 'XP', cs_diff: 'Lane CS'};
-const EVIDENCE = {stats_only: 'timeline only', recording: 'recording', memory: 'recollection'};
+const EVIDENCE = {stats_only: 'Timeline', recording: 'Recording', memory: 'Recollection'};
 
 /** Win/loss always pairs colour with a glyph and a letter (UI.md §3). */
 const result = win => win
@@ -407,8 +407,9 @@ $('use-focus').onclick = () => {
   if (state.focusDirty && !confirm('Replace the unsaved focus draft?')) return;
   const m = state.detail.match;
   openFocusForm();
+  const evidence = EVIDENCE[$('evidence').value] || $('evidence').value;
   $('goal').value = $('alternative').value.slice(0, 1000);
-  $('why').value = `${m.my_champion} vs ${m.opp_champion || '?'}, ${clock(state.moment.start_ms)}: ${$('observation').value}`.slice(0, 1000);
+  $('why').value = `${m.my_champion} vs ${m.opp_champion || '?'}, ${clock(state.moment.start_ms)} (${evidence}): ${$('observation').value}`.slice(0, 1000);
   $('check').value = '';
   state.focusDirty = true;
   $('goal').focus();
@@ -417,9 +418,15 @@ $('use-focus').onclick = () => {
 // ---------------------------------------------------------------- focus
 function showFocus(f) {
   state.focus = f;
-  $('focus-goal').textContent = f.goal || 'No focus set.';
-  $('focus-why').textContent = f.goal ? (f.why_text || '') : 'Press Edit, or use "Use as focus" on a saved review.';
-  $('focus-check').textContent = f.check_text ? `Check: ${f.check_text}` : '';
+  const goal = (f.goal || '').trim();
+  $('focus-goal').textContent = goal || 'No focus set.';
+  $('focus-why').textContent = goal
+    ? (f.why_text ? `Evidence: ${f.why_text}` : 'No evidence note saved.')
+    : 'Press Edit, or use "Use as focus" on a saved review.';
+  $('focus-check').textContent = goal
+    ? (f.check_text ? `Check: ${f.check_text}` : 'No measurable check saved.')
+    : '';
+  $('focus-grade').textContent = goal ? 'Not graded.' : '';
   $('goal').value = f.goal || ''; $('why').value = f.why_text || ''; $('check').value = f.check_text || '';
   renderBanner();
 }
@@ -450,24 +457,72 @@ function clearVideo() {
   if (state.videoURL) URL.revokeObjectURL(state.videoURL);
   state.videoURL = null;
   const v = $('video'); v.pause(); v.removeAttribute('src'); v.load(); v.hidden = true;
-  $('video-file').value = ''; $('video-offset').value = '0'; $('video-status').textContent = '';
+  $('video-file').value = ''; $('video-offset').value = ''; $('video-status').textContent = '';
+  renderSync();
+}
+
+/** Predicted game clock: video seconds minus offset. Same mapping as coach/clock.py game_seconds. */
+function predictedGameSeconds(videoSeconds, offsetSeconds) {
+  return videoSeconds - offsetSeconds;
+}
+
+function clockSeconds(seconds) {
+  const sign = seconds < 0 ? '−' : '';
+  let tenths = Math.round(Math.abs(seconds) * 10);
+  const minutes = Math.floor(tenths / 600);
+  tenths -= minutes * 600;
+  const whole = Math.floor(tenths / 10);
+  const frac = tenths % 10;
+  const text = frac === 0 ? String(whole).padStart(2, '0') : `${String(whole).padStart(2, '0')}.${frac}`;
+  return `${sign}${minutes}:${text}`;
+}
+
+function renderSync() {
+  const el = $('sync-readout');
+  const v = $('video');
+  const raw = $('video-offset').value.trim();
+  const offset = raw === '' ? NaN : Number(raw);
+  const loaded = !v.hidden && !!v.getAttribute('src');
+  if (!loaded) {
+    el.textContent = 'No file loaded, so there is no predicted game clock.';
+    return;
+  }
+  if (!Number.isFinite(offset)) {
+    el.textContent = 'File loaded. Enter an offset to predict the game clock.';
+    return;
+  }
+  const videoSeconds = Number.isFinite(v.currentTime) ? v.currentTime : 0;
+  const gameSeconds = predictedGameSeconds(videoSeconds, offset);
+  const playhead = clockSeconds(videoSeconds);
+  if (gameSeconds < 0) {
+    el.innerHTML = `Playhead ${esc(playhead)} is before game 0:00 at this offset. <span class="sync-unverified">Unverified</span>`;
+    return;
+  }
+  el.innerHTML = `Playhead ${esc(playhead)} · predicted game ${esc(clockSeconds(gameSeconds))}. <span class="sync-unverified">Unverified</span>`;
 }
 
 /** Load the OBS recording linked to this match (API.md: match.recording), else explain what is missing. */
 function showLinkedRecording() {
   const rec = state.detail.recording, note = $('recording-note');
   note.className = 'dim';
-  if (!rec) { note.textContent = 'No recording linked. Choose a local file; it stays in this browser.'; return; }
-  const name = String(rec.path || '').split(/[\\/]/).pop();
+  if (!rec) {
+    note.textContent = 'No recording linked. Choose a local file; it stays in this browser.';
+    renderSync();
+    return;
+  }
+  const name = String(rec.path || '').split(/[\\/]/).pop() || 'recording';
+  $('video-offset').value = Number.isFinite(rec.offset_s) ? String(rec.offset_s) : '';
   if (!rec.url) {
     note.className = 'state error';
-    note.textContent = `Linked recording ${name || ''} is no longer on disk. Choose the file if it moved.`;
+    note.textContent = `Linked file ${name} is not on disk. Choose it if it moved.`;
+    renderSync();
     return;
   }
   $('video').src = rec.url; $('video').hidden = false;
-  if (Number.isFinite(rec.offset_s)) $('video-offset').value = String(rec.offset_s);
-  note.textContent = `Linked recording: ${name}. ` + (Number.isFinite(rec.offset_s)
-    ? 'Offset read from the game clock.' : 'Game clock not read; set the offset by hand.');
+  note.textContent = Number.isFinite(rec.offset_s)
+    ? `Linked ${name}.`
+    : `Linked ${name}. The recorder did not store an offset.`;
+  renderSync();
 }
 
 $('video-file').onchange = () => {
@@ -476,18 +531,22 @@ $('video-file').onchange = () => {
   if (state.videoURL) URL.revokeObjectURL(state.videoURL);
   state.videoURL = URL.createObjectURL(file);
   $('video').src = state.videoURL; $('video').hidden = false;
-  $('video-status').textContent = 'Recording loaded. Check that the offset lines up the game clock.';
+  $('video-status').textContent = 'Recording loaded.';
+  renderSync();
 };
 $('video').onerror = () => { if ($('video').getAttribute('src')) $('video-status').textContent = 'The browser cannot play this format. Use an MP4 or WebM recording.'; };
+for (const ev of ['timeupdate', 'seeked', 'loadedmetadata', 'emptied']) $('video').addEventListener(ev, renderSync);
+$('video-offset').addEventListener('input', renderSync);
 $('seek-video').onclick = () => {
-  const v = $('video'), offset = Number($('video-offset').value);
+  const v = $('video'), raw = $('video-offset').value.trim(), offset = raw === '' ? NaN : Number(raw);
   if (!state.moment) { status('Pick a moment before jumping in the recording.', 'error'); return; }
-  if (!v.src || !Number.isFinite(v.duration)) { status('Choose a playable recording first.', 'error'); return; }
+  if (!v.getAttribute('src') || !Number.isFinite(v.duration)) { status('Choose a playable recording first.', 'error'); return; }
   if (!Number.isFinite(offset)) { status('Enter the video time at game 0:00 in seconds.', 'error'); return; }
   const target = state.moment.start_ms / 1000 + offset;
   if (target < 0 || target > v.duration) { status(`${clock(state.moment.start_ms)} falls outside this recording. Check the offset.`, 'error'); return; }
   v.currentTime = target;
-  $('video-status').textContent = `Video at ${clock(target * 1000)} = game ${clock(state.moment.start_ms)}.`;
+  $('video-status').textContent = 'Jumped to the review start.';
+  renderSync();
 };
 
 const viewLoaders = {};  // view name -> function run each time the view is shown
