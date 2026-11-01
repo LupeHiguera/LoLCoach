@@ -1,4 +1,9 @@
-"""Versioned moment JSON and evidence checks; valid structure does not prove a claim."""
+"""Versioned moment JSON and evidence checks; valid structure does not prove a claim.
+
+schema_version stays 1. Frames, events, observations and the moment use
+different ID namespaces. Files that already used those shapes still validate.
+A frame ID reused as an observation ID is rejected, not rewritten.
+"""
 import json
 import re
 
@@ -28,10 +33,13 @@ def choice(*values):
 
 
 ID = text(128, pattern=r'^[A-Za-z0-9_-]+$')
+OBS_ID = text(128, pattern=r'^obs-[A-Za-z0-9_-]+$')
+FRAME_ID = text(128, pattern=r'^frame-[0-9]+$')
+EVENT_ID = text(128, pattern=r'^event-[A-Za-z0-9_-]+$')
 MS = dict(type='integer', minimum=0)
 REFS = array(ID, 8, 1)
-FRAME = obj(id=ID, game_ms=MS, image_file=text(160, pattern=r'^frame-[0-9]+\.png$'))
-EVENT = obj(id=ID, game_ms=MS, source=choice('riot_timeline'),
+FRAME = obj(id=FRAME_ID, game_ms=MS, image_file=text(160, pattern=r'^frame-[0-9]+\.png$'))
+EVENT = obj(id=EVENT_ID, game_ms=MS, source=choice('riot_timeline'),
             visibility=choice('global_event_not_player_view'), side=choice('ally', 'enemy', None),
             killer=text(32, True), victim=text(32, True), assists=array(text(32), 5),
             me=choice('kill', 'death', 'assist', None))
@@ -45,7 +53,7 @@ PACKET = obj(schema_version=choice(1), moment_id=ID, patch=text(64, True),
 
 def observations_schema(sources, verifications):
     return obj(schema_version=choice(1), moment_id=ID,
-               observations=array(obj(id=ID, game_ms=MS, statement=text(),
+               observations=array(obj(id=OBS_ID, game_ms=MS, statement=text(),
                                       source=choice(*sources),
                                       verification=choice(*verifications), evidence_refs=REFS), 16),
                unknowns=array(text(300), 12))
@@ -111,12 +119,57 @@ def unique_ids(items):
     return set(ids)
 
 
+def _reserved_evidence_prefix(value):
+    return value.startswith(('frame-', 'obs-', 'event-', 'moment-'))
+
+
+def _check_packet_ids(packet):
+    """Frame, event, knowledge and moment IDs are one set, and each has a role.
+
+    A frame ID is frame-{game_ms} and its file is that ID plus .png. The
+    number is the labelled game clock of the frame, not a check that the
+    picture shows it. Event IDs use event-. Knowledge IDs stay free-form
+    except they cannot borrow those prefixes or the moment- prefix.
+    """
+    for frame in packet['frames']:
+        expected = f"frame-{frame['game_ms']}"
+        if frame['id'] != expected or frame['image_file'] != f'{expected}.png':
+            raise ValueError('Frame ID, filename and game clock must match')
+    for event in packet['events']:
+        if re.fullmatch(r'event-[A-Za-z0-9_-]+', event['id']) is None:
+            raise ValueError('Event ID must use the event- prefix')
+    for rule in packet['knowledge']:
+        if _reserved_evidence_prefix(rule['id']):
+            raise ValueError('Knowledge ID uses a reserved evidence prefix')
+    moment = packet['moment_id']
+    if moment.startswith(('frame-', 'obs-', 'event-')):
+        raise ValueError('Moment ID collides with the frame, observation or event namespace')
+    ids = [moment]
+    ids.extend(item['id'] for item in packet['frames'] + packet['events'] + packet['knowledge'])
+    if len(ids) != len(set(ids)):
+        raise ValueError('Duplicate or colliding evidence IDs')
+
+
+def _reject_non_obs_ids(observations):
+    """Say why a frame ID cannot be an observation ID before the generic pattern error."""
+    items = observations.get('observations') if isinstance(observations, dict) else None
+    if not isinstance(items, list):
+        return
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        oid = item.get('id')
+        if isinstance(oid, str) and re.fullmatch(r'obs-[A-Za-z0-9_-]+', oid) is None:
+            raise ValueError(
+                f'observations[{index}].id must start with obs-; a frame ID is not an observation ID')
+
+
 def validate_packet(packet):
     validate(packet, PACKET)
     start, end = packet['start_ms'], packet['decision_ms']
     if not 0 <= end - start <= MAX_WINDOW_MS:
         raise ValueError('Moment must have a window of at most 60 seconds')
-    unique_ids(packet['frames'] + packet['events'] + packet['knowledge'])
+    _check_packet_ids(packet)
     for item in packet['frames'] + packet['events']:
         if not start <= item['game_ms'] <= end:
             raise ValueError('Evidence falls outside the decision window')
@@ -132,17 +185,26 @@ def validate_packet(packet):
 def validate_observations(observations, packet, model_output=False):
     """Model output must stay model_observed; stored evidence may be human_verified."""
     validate_packet(packet)
+    _reject_non_obs_ids(observations)
     validate(observations, OBSERVATIONS if model_output else STORED_OBSERVATIONS)
     if observations['moment_id'] != packet['moment_id']:
         raise ValueError('Observations belong to another moment')
     frames = {f['id']: f['game_ms'] for f in packet['frames']}
+    events = {e['id'] for e in packet['events']}
+    rules = {r['id'] for r in packet['knowledge']}
+    moment = packet['moment_id']
     ids = unique_ids(observations['observations'])
-    if ids & unique_ids(packet['frames'] + packet['events'] + packet['knowledge']):
-        raise ValueError('Observation ID collides with input evidence')
+    if ids & (set(frames) | events | rules | {moment}):
+        raise ValueError('Observation ID collides with a frame, event, rule or moment ID')
     for observation in observations['observations']:
         refs = observation['evidence_refs']
-        if len(refs) != len(set(refs)) or not set(refs) <= frames.keys():
-            raise ValueError('Observation cites unknown or duplicate frames')
+        if len(refs) != len(set(refs)):
+            raise ValueError('Observation cites duplicate frames')
+        for ref in refs:
+            if ref in events or ref in rules or ref in ids or ref == moment:
+                raise ValueError('Observation cites a non-frame ID')
+            if ref not in frames:
+                raise ValueError('Observation cites an unknown frame')
         if observation['source'] == 'human' and observation['verification'] != 'human_verified':
             raise ValueError('A human-written observation must be marked human_verified')
         times = [frames[ref] for ref in refs]
@@ -155,13 +217,20 @@ def validate_review(review, packet, observations):
     validate(review, REVIEW)
     if review['moment_id'] != packet['moment_id']:
         raise ValueError('Review belongs to another moment')
-    evidence = unique_ids(observations['observations'] + packet['events'])
+    obs_ids = unique_ids(observations['observations'])
+    evidence = obs_ids | unique_ids(packet['events'])
     rules = unique_ids(packet['knowledge'])
+    frames = {f['id'] for f in packet['frames']}
+    moment = packet['moment_id']
     cited = review['claims'] + ([review['alternative']] if review['alternative'] else [])
     for claim in cited:
         refs = claim['evidence_refs']
+        if moment in refs or set(refs) & frames:
+            raise ValueError('Review cites a frame or moment ID; cite an observation or event')
         if len(refs) != len(set(refs)) or not set(refs) <= evidence | rules or not set(refs) & evidence:
             raise ValueError('Claim needs valid moment evidence, not just a game rule')
+        if claim.get('kind') == 'observation' and not set(refs) & obs_ids:
+            raise ValueError('An observation claim must cite an observation ID')
     if review['assessment'] == 'needs_more_evidence':
         if review['alternative'] is not None or review['practice_focus'] is not None or not review['missing_evidence']:
             raise ValueError('Insufficient evidence cannot produce advice or a practice focus')

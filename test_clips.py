@@ -4,7 +4,7 @@ import shutil
 import sqlite3
 import tempfile
 import unittest
-from contextlib import closing, redirect_stdout
+from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -131,6 +131,24 @@ class ExtractionTests(unittest.TestCase):
         manifest = clips.plan_clips(dict(MATCH, match_id='../escape'), [], 0, 600)
         with tempfile.TemporaryDirectory() as temp, self.assertRaisesRegex(ValueError, 'safe output'):
             clips.extract_clips(manifest, Path('source.mp4'), Path(temp))
+
+    def test_linked_recording_without_offset_is_not_treated_as_zero(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            db, notes = root / 'league.db', root / 'reviews.db'
+            with closing(sqlite3.connect(db)) as conn, conn:
+                populate(conn)
+            with closing(sqlite3.connect(notes)) as conn, conn:
+                conn.executescript(RECORDING_SCHEMA)
+                conn.execute("INSERT INTO recordings (match_id, path, offset_s, status) "
+                             "VALUES ('NA1_123', ?, NULL, 'linked')", (str(root / 'game.mp4'),))
+            err = io.StringIO()
+            with redirect_stderr(err), self.assertRaises(SystemExit) as exc:
+                clips.main(['--match', 'NA1_123', '--db', str(db), '--notes', str(notes),
+                            '--output', str(root / 'clips')])
+            self.assertEqual(exc.exception.code, 1)
+            self.assertIn('no offset', err.getvalue())
+            self.assertFalse((root / 'clips').exists())
 
     def test_dry_run_never_modifies_db_or_writes_output(self):
         with tempfile.TemporaryDirectory() as temp:
