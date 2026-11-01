@@ -11,9 +11,11 @@ from urllib.request import ProxyHandler, Request, build_opener
 from coach import harness
 
 # Payload keys that would carry frames, audio or video. Text coaching never sends them.
-MEDIA_KEYS = {'image_url', 'input_image', 'input_audio', 'input_video', 'audio', 'video'}
+MEDIA_KEYS = {'image_url', 'input_image', 'input_audio', 'input_video', 'input_file',
+              'file_data', 'audio', 'video', 'image'}
 MEDIA_TEXT = re.compile(
-    r'(?i)(?:data:(?:image|audio|video)|(?:^|[\s\'"\\/])[\w.-]+\.(?:mp4|mkv|webm|mov|avi|png|jpe?g|webp|wav|mp3|m4a)\b)')
+    r'(?i)(?:data:(?:image|audio|video|application)|'
+    r'(?:^|[\s\'"\\/])[\w.-]+\.(?:mp4|mkv|webm|mov|avi|m4v|ts|png|jpe?g|webp|gif|wav|mp3|m4a|aac|flac|ogg)\b)')
 
 MODEL = 'gpt-6.1-sol'
 ENDPOINT = 'https://api.openai.com/v1/responses'
