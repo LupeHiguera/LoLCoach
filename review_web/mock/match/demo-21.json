@@ -987,6 +987,28 @@
    "alternative": "Ward the river brush before stepping up after 3:00.",
    "evidence": "stats_only",
    "updated_at": "2026-09-20T21:50:00+00:00"
+  },
+  {
+   "match_id": "demo-21",
+   "moment_id": "death-1412000",
+   "start_ms": 1352000,
+   "end_ms": 1412000,
+   "reason": "fighting",
+   "observation": "Watched the fight from the river entrance. Charm was on cooldown.",
+   "alternative": "Hold the wave if Charm is down.",
+   "evidence": "recording",
+   "updated_at": "2026-09-20T22:10:00+00:00"
+  },
+  {
+   "match_id": "demo-21",
+   "moment_id": "farm-780010-1020010",
+   "start_ms": 780010,
+   "end_ms": 1020010,
+   "reason": "roaming",
+   "observation": "I remember leaving lane after the second plate, without a timestamp to check.",
+   "alternative": "",
+   "evidence": "memory",
+   "updated_at": "2026-09-20T22:12:00+00:00"
   }
  ],
  "cadence_ms": 60000,
@@ -994,6 +1016,7 @@
   "path": "D:/Videos/OBS/2026-09-20 21-14-03.mkv",
   "offset_s": 41.5,
   "status": "linked",
-  "url": null
+  "url": null,
+  "sync": {"verified": false, "anchor": "live_clock"}
  }
 }

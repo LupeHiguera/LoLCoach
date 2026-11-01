@@ -12,7 +12,18 @@ const isoDay = ms => { const d = new Date(ms); return `${d.getFullYear()}-${Stri
 const hhmm = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 const QUEUES = {420: 'Ranked solo/duo', 440: 'Ranked flex', 400: 'Normal draft'};
 const METRICS = {gold_diff: 'Gold', xp_diff: 'XP', cs_diff: 'Lane CS'};
-const EVIDENCE = {stats_only: 'timeline only', recording: 'recording', memory: 'recollection'};
+// Source of a saved note. Not a model check: model_observed / human_verified are named in the tooltip only.
+const EVIDENCE = {
+  stats_only: {tag: 'Timeline', detail: 'Riot timeline and end-of-game stats.'},
+  recording: {tag: 'Recording', detail: 'Video you watched.'},
+  memory: {tag: 'Recollection', detail: 'Memory, not checked against the timeline or the recording.'},
+};
+const REASON = {
+  uncertain: 'Not sure yet', dead: 'Dead', recalling: 'Recalling / shopping', fighting: 'Fighting',
+  roaming: 'Roaming / rotating', pressured: 'Pressured out', other: 'Other',
+};
+// A HUD difference under 1s is the precision of the Live Client reading. It does not verify the file.
+const SYNC_WHOLE_SECOND_S = 1;
 
 /** Win/loss always pairs colour with a glyph and a letter (UI.md §3). */
 const result = win => win
@@ -27,6 +38,7 @@ const state = {
   matches: [], detail: null, moment: null, metric: 'gold_diff', killFilter: 'all',
   dirty: false, focusDirty: false, focus: null, videoURL: null, request: 0,
   view: 'review', loaded: {}, charm: null, profile: null,
+  offsetOrigin: 'missing', sawFrame: false, correctedOffset: null, videoError: false,
 };
 
 // ---------------------------------------------------------------- data source
@@ -350,7 +362,7 @@ function renderMoments() {
       <td class="num">${span}</td>
       <td><button class="linkbtn" type="button">${esc(m.title)}</button></td>
       <td class="cell-note">${BASIS[m.kind] || esc(m.kind)}</td>
-      <td>${r ? `${esc(r.reason)} · ${esc(EVIDENCE[r.evidence] || r.evidence)}<br><span class="cell-note">${esc(r.observation.slice(0, 90))}${r.observation.length > 90 ? '…' : ''}</span>` : '<span class="cell-note">—</span>'}</td>
+      <td>${r ? `${esc(REASON[r.reason] || r.reason)} · ${evidenceTag(r.evidence)}<br><span class="cell-note">${esc(r.observation.slice(0, 90))}${r.observation.length > 90 ? '…' : ''}</span>` : '<span class="cell-note">—</span>'}</td>
     </tr>`;
   }).join('') || emptyRow(4, d.frames.length
     ? 'No automatic prompts in this game. Click a point on the chart to review your own moment.'
@@ -363,14 +375,28 @@ $('moments').onclick = e => {
 };
 
 // ---------------------------------------------------------------- review form
+function evidenceTag(value) {
+  const spec = EVIDENCE[value];
+  if (!spec) return `<span class="cell-note">${esc(value || '—')}</span>`;
+  return `<span class="etag" title="${esc(spec.detail)}">${esc(spec.tag)}</span>`;
+}
+
+function renderEvidence() {
+  const spec = EVIDENCE[$('evidence').value];
+  $('evidence-detail').textContent = spec && !$('review-form').hidden ? spec.detail : '';
+  $('review-evidence-tag').innerHTML = spec && !$('review-form').hidden
+    ? `<span class="etag">${esc(spec.tag)}</span>` : '';
+}
+
 function renderReviewForm() {
   const m = state.moment;
   $('review-none').hidden = !!m;
   $('review-form').hidden = !m;
-  if (!m) { $('saved').textContent = ''; return; }
+  if (!m) { $('saved').textContent = ''; renderEvidence(); return; }
   const span = m.start_ms === m.end_ms ? clock(m.end_ms) : `${clock(m.start_ms)}–${clock(m.end_ms)}`;
   $('review-title').textContent = `${span} · ${m.title}`;
   $('review-description').textContent = m.description || '';
+  renderEvidence();
 }
 
 function selectMoment(moment) {
@@ -381,8 +407,10 @@ function selectMoment(moment) {
   if (review) for (const k of ['reason', 'evidence', 'observation', 'alternative']) $(k).value = review[k] ?? '';
   renderReviewForm();
   $('saved').textContent = review ? `Saved ${review.updated_at ? new Date(review.updated_at).toLocaleString() : ''}` : 'Not saved';
-  renderMoments(); renderKills(); renderChart();
+  renderMoments(); renderKills(); renderChart(); renderSync();
 }
+
+$('evidence').addEventListener('change', renderEvidence);
 
 $('review-form').oninput = () => { state.dirty = true; $('saved').textContent = 'Unsaved changes'; };
 $('review-form').onsubmit = async e => {
@@ -446,28 +474,203 @@ $('focus-form').onsubmit = async e => {
 };
 
 // ---------------------------------------------------------------- video (local file, never uploaded)
+// video time = game time + offset. Expected is the game clock that offset predicts
+// at the current video time. Shown is the HUD clock the person reads. A difference
+// under SYNC_WHOLE_SECOND_S does not verify the file. corrected = offset + (expected - shown).
 function clearVideo() {
   if (state.videoURL) URL.revokeObjectURL(state.videoURL);
   state.videoURL = null;
+  state.offsetOrigin = 'missing';
+  state.sawFrame = false;
+  state.correctedOffset = null;
+  state.videoError = false;
   const v = $('video'); v.pause(); v.removeAttribute('src'); v.load(); v.hidden = true;
-  $('video-file').value = ''; $('video-offset').value = '0'; $('video-status').textContent = '';
+  $('video-file').value = ''; $('video-offset').value = ''; $('shown-clock').value = '';
+  $('video-status').textContent = ''; $('sync-actions').hidden = true;
 }
 
-/** Load the OBS recording linked to this match (API.md: match.recording), else explain what is missing. */
+function setRecordingNote(text, error) {
+  const note = $('recording-note');
+  note.className = error ? 'state error' : 'dim';
+  note.textContent = text;
+}
+
+/** Blank is missing, not 0. 0 is a real claim that the file starts at game 0:00. */
+function currentOffset() {
+  const raw = $('video-offset').value.trim();
+  if (raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function roundTenth(n) {
+  const rounded = Math.round(n * 10) / 10;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function formatOffset(seconds) {
+  if (!Number.isFinite(seconds)) return 'not set';
+  const rounded = roundTenth(seconds);
+  const body = Math.abs(rounded).toFixed(1);
+  if (rounded < 0) return `−${body} s`;
+  if (rounded > 0) return `+${body} s`;
+  return '0.0 s';
+}
+
+/** Game clock with a tenth when the offset is not a whole second. Negative stays signed. */
+function clockExact(seconds) {
+  if (!Number.isFinite(seconds)) return '—';
+  const sign = seconds < -0.05 ? '−' : '';
+  let whole = Math.floor(Math.abs(seconds) + 1e-9);
+  let tenth = Math.round((Math.abs(seconds) - whole) * 10);
+  if (tenth >= 10) { whole += 1; tenth = 0; }
+  const text = `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+  return tenth ? `${sign}${text}.${tenth}` : sign + text;
+}
+
+/** m:ss, h:mm:ss, or seconds. Empty is null; anything else unparseable is NaN. */
+function parseClock(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
+  const fraction = digits => digits ? Number(`0.${digits}`) : 0;
+  let match = raw.match(/^(\d+):([0-5]\d)(?:\.(\d{1,3}))?$/);
+  if (match) return Number(match[1]) * 60 + Number(match[2]) + fraction(match[3]);
+  match = raw.match(/^(\d+):([0-5]\d):([0-5]\d)(?:\.(\d{1,3}))?$/);
+  if (match) return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + fraction(match[4]);
+  return NaN;
+}
+
+function offsetPhrase(offset) {
+  if (offset == null) return state.offsetOrigin === 'missing' ? 'not set · clock was not read' : 'not set';
+  if (!Number.isFinite(offset)) return 'not a number';
+  const origin = {live_clock: 'Live Client at record start', typed: 'typed on this page'}[state.offsetOrigin];
+  return origin ? `${formatOffset(offset)} · ${origin}` : formatOffset(offset);
+}
+
+/** Load the OBS recording linked to this match (API.md: match.recording), else say what is missing. */
 function showLinkedRecording() {
-  const rec = state.detail.recording, note = $('recording-note');
-  note.className = 'dim';
-  if (!rec) { note.textContent = 'No recording linked. Choose a local file; it stays in this browser.'; return; }
-  const name = String(rec.path || '').split(/[\\/]/).pop();
-  if (!rec.url) {
-    note.className = 'state error';
-    note.textContent = `Linked recording ${name || ''} is no longer on disk. Choose the file if it moved.`;
+  const rec = state.detail.recording;
+  state.sawFrame = false;
+  state.correctedOffset = null;
+  if (!rec) {
+    state.offsetOrigin = 'none';
+    $('video-offset').value = '';
+    setRecordingNote('No recording linked. Choose a local file; it stays in this browser.', false);
+    renderSync();
     return;
   }
-  $('video').src = rec.url; $('video').hidden = false;
-  if (Number.isFinite(rec.offset_s)) $('video-offset').value = String(rec.offset_s);
-  note.textContent = `Linked recording: ${name}. ` + (Number.isFinite(rec.offset_s)
-    ? 'Offset read from the game clock.' : 'Game clock not read; set the offset by hand.');
+  const name = String(rec.path || '').split(/[\\/]/).pop();
+  if (Number.isFinite(rec.offset_s)) {
+    $('video-offset').value = String(rec.offset_s);
+    state.offsetOrigin = 'live_clock';
+  } else {
+    $('video-offset').value = '';
+    state.offsetOrigin = 'missing';
+  }
+  if (!rec.url) {
+    setRecordingNote(name
+      ? `Linked recording ${name} is no longer on disk. Choose the file if it moved.`
+      : 'Linked recording is no longer on disk. Choose the file if it moved.', true);
+    renderSync();
+    return;
+  }
+  $('video').src = rec.url;
+  $('video').hidden = false;
+  setRecordingNote(name ? `Linked file ${name}.` : 'Linked file.', false);
+  renderSync();
+}
+
+function comparisonText(offset, expectedS, videoS) {
+  state.correctedOffset = null;
+  const raw = $('shown-clock').value;
+  const shown = parseClock(raw);
+  const death = state.moment && state.moment.kind === 'death' ? state.moment : null;
+  const v = $('video');
+  if (v.getAttribute('src') && state.videoError && !Number.isFinite(v.duration)) {
+    return 'The browser cannot play this format. Use an MP4 or WebM recording.';
+  }
+  if (raw.trim() && !Number.isFinite(shown)) return 'Clock shown must look like 4:58 or 298.';
+  if (Number.isFinite(expectedS) && Number.isFinite(shown)) {
+    const delta = expectedS - shown;
+    const gap = Math.abs(delta);
+    if (gap < SYNC_WHOLE_SECOND_S) {
+      state.correctedOffset = null;
+      return `Shown ${clockExact(shown)} is within 1 s of expected ${clockExact(expectedS)}.`;
+    }
+    const corrected = roundTenth(offset + delta);
+    state.correctedOffset = Math.abs(corrected - offset) >= 0.05 ? corrected : null;
+    const direction = delta > 0 ? 'earlier' : 'later';
+    return `Expected ${clockExact(expectedS)}, shown ${clockExact(shown)} (${gap.toFixed(1)} s ${direction}). Corrected offset ${formatOffset(corrected)}. This page only; the recording row is unchanged.`;
+  }
+  if (!v.getAttribute('src')) {
+    if (Number.isFinite(shown)) return `Clock shown is ${clockExact(shown)}. Load a recording before comparing it.`;
+    if (death) return `Death at ${clock(death.end_ms)}. Load a recording, jump to death, then type the clock shown.`;
+    if (state.moment) return `Review starts at ${clock(state.moment.start_ms)}. Load a recording, then jump to it.`;
+    return 'Load a recording, then pick a moment to check.';
+  }
+  if (!Number.isFinite(v.duration)) return 'Waiting for the file to load.';
+  if (offset == null) return 'Set the offset (seconds added to game time) to predict the game clock.';
+  if (!Number.isFinite(offset)) return 'Offset must be a finite number of seconds.';
+  if (!v.paused && !v.ended) return 'Pause on the frame, then type the clock shown.';
+  if (death && !state.sawFrame) return `Death at ${clock(death.end_ms)}. Jump to death, pause, and type the clock shown. Expected at the file start is ${clockExact(expectedS)}.`;
+  return `Expected ${clockExact(expectedS)} at video ${clockExact(videoS)}. Type the clock shown in the frame.`;
+}
+
+function renderSync() {
+  const offset = currentOffset();
+  const v = $('video');
+  const loaded = !!v.getAttribute('src') && Number.isFinite(v.duration);
+  const videoS = loaded ? v.currentTime : null;
+  const expectedS = loaded && Number.isFinite(offset) ? videoS - offset : null;
+  $('sync-word').textContent = 'Unverified';
+  $('sync-offset').textContent = offsetPhrase(offset);
+  $('sync-video').textContent = !v.getAttribute('src') ? 'no file' : loaded ? clockExact(videoS) : 'loading';
+  const playing = loaded && !v.paused && !v.ended;
+  $('sync-expected').textContent = !Number.isFinite(expectedS) ? '—'
+    : playing ? `${clockExact(expectedS)} · pause to read` : clockExact(expectedS);
+  $('seek-death').hidden = !(state.moment && state.moment.kind === 'death');
+  $('video-status').textContent = comparisonText(offset, expectedS, videoS);
+  const corrected = state.correctedOffset;
+  $('sync-actions').hidden = !Number.isFinite(corrected);
+}
+
+function seekToGame(gameMs) {
+  const v = $('video');
+  const offset = currentOffset();
+  if (!state.moment) { status('Pick a moment before jumping in the recording.', 'error'); return; }
+  if (!v.getAttribute('src') || !Number.isFinite(v.duration)) {
+    status('Choose a playable recording first.', 'error');
+    renderSync();
+    return;
+  }
+  if (offset == null) {
+    status('Enter the offset in seconds. It is added to game time to get video time.', 'error');
+    renderSync();
+    return;
+  }
+  if (!Number.isFinite(offset)) {
+    status('Offset must be a finite number of seconds.', 'error');
+    renderSync();
+    return;
+  }
+  const target = gameMs / 1000 + offset;
+  if (target < 0 || target > v.duration) {
+    status(`Game ${clock(gameMs)} falls outside this recording at offset ${formatOffset(offset)}.`, 'error');
+    renderSync();
+    return;
+  }
+  $('shown-clock').value = '';
+  const finish = () => {
+    state.sawFrame = true;
+    status(`Video ${clockExact(v.currentTime)} · expected game ${clockExact(v.currentTime - offset)}.`);
+    renderSync();
+  };
+  v.pause();
+  if (Math.abs(v.currentTime - target) < 0.05) { finish(); return; }
+  const onSeeked = () => { v.removeEventListener('seeked', onSeeked); finish(); };
+  v.addEventListener('seeked', onSeeked);
+  v.currentTime = target;
 }
 
 $('video-file').onchange = () => {
@@ -475,19 +678,40 @@ $('video-file').onchange = () => {
   if (!file) return;
   if (state.videoURL) URL.revokeObjectURL(state.videoURL);
   state.videoURL = URL.createObjectURL(file);
-  $('video').src = state.videoURL; $('video').hidden = false;
-  $('video-status').textContent = 'Recording loaded. Check that the offset lines up the game clock.';
+  state.sawFrame = false;
+  state.videoError = false;
+  $('video').src = state.videoURL;
+  $('video').hidden = false;
+  setRecordingNote(`Local file ${file.name}. It stays in this browser and is not uploaded.`, false);
+  renderSync();
 };
-$('video').onerror = () => { if ($('video').getAttribute('src')) $('video-status').textContent = 'The browser cannot play this format. Use an MP4 or WebM recording.'; };
+$('video-offset').oninput = () => {
+  state.offsetOrigin = 'typed';
+  renderSync();
+};
+$('shown-clock').oninput = () => renderSync();
+$('video').onloadedmetadata = () => { state.videoError = false; renderSync(); };
+$('video').onplay = () => renderSync();
+$('video').onpause = () => renderSync();
+$('video').onseeked = () => {
+  const v = $('video');
+  if (!v.getAttribute('src')) return;
+  if (v.currentTime > 0.25) state.sawFrame = true;
+  renderSync();
+};
+$('video').onerror = () => { if ($('video').getAttribute('src')) { state.videoError = true; renderSync(); } };
 $('seek-video').onclick = () => {
-  const v = $('video'), offset = Number($('video-offset').value);
   if (!state.moment) { status('Pick a moment before jumping in the recording.', 'error'); return; }
-  if (!v.src || !Number.isFinite(v.duration)) { status('Choose a playable recording first.', 'error'); return; }
-  if (!Number.isFinite(offset)) { status('Enter the video time at game 0:00 in seconds.', 'error'); return; }
-  const target = state.moment.start_ms / 1000 + offset;
-  if (target < 0 || target > v.duration) { status(`${clock(state.moment.start_ms)} falls outside this recording. Check the offset.`, 'error'); return; }
-  v.currentTime = target;
-  $('video-status').textContent = `Video at ${clock(target * 1000)} = game ${clock(state.moment.start_ms)}.`;
+  seekToGame(state.moment.start_ms);
+};
+$('seek-death').onclick = () => { if (state.moment && state.moment.kind === 'death') seekToGame(state.moment.end_ms); };
+$('apply-offset').onclick = () => {
+  if (!Number.isFinite(state.correctedOffset)) return;
+  const rounded = state.correctedOffset;
+  $('video-offset').value = String(rounded);
+  state.offsetOrigin = 'typed';
+  status(`Offset set to ${formatOffset(rounded)} on this page. Not saved.`);
+  renderSync();
 };
 
 const viewLoaders = {};  // view name -> function run each time the view is shown

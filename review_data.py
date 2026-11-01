@@ -1,5 +1,6 @@
 """Local review storage and timeline evidence, independent of any UI or server."""
 import json
+import math
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
@@ -9,6 +10,8 @@ import analyze
 import recorder
 
 REASONS = {"uncertain", "dead", "recalling", "fighting", "roaming", "pressured", "other"}
+# Stored review.evidence values. Display labels live in the review page (API.md).
+EVIDENCE = {"stats_only", "recording", "memory"}
 
 
 def connect(path, readonly=False):
@@ -90,10 +93,11 @@ class ReviewStore:
         return path if path is not None and path.is_file() else None
 
     def recording(self, match_id):
-        """{path, offset_s, status, url=None} for a recording; no HTTP server is assumed.
+        """{path, offset_s, status, url=None, sync} for a recording, or None.
 
-        offset_s is added to game time to get video time. It comes from the game
-        clock read when OBS started, so it can be off by a second or so.
+        offset_s is added to game time to get video time. It comes from the Live
+        Client clock when OBS started. That reading is not a check of the clock
+        painted in the video. sync.verified stays false; see sync_status.
         """
         self.link_recordings()
         with closing(connect(self.notes_path)) as conn:
@@ -101,7 +105,8 @@ class ReviewStore:
         if row is None:
             return None
         url = None  # No HTTP server is required by the storage layer.
-        return dict(path=row['path'], offset_s=row['offset_s'], status=row['status'], url=url)
+        return dict(path=row['path'], offset_s=row['offset_s'], status=row['status'], url=url,
+                    sync=sync_status(row['offset_s']))
 
     def charm(self):
         """Ahri Charm estimate per game and pooled with bootstrap CIs (analyze.charm_report)."""
@@ -142,7 +147,7 @@ class ReviewStore:
         observation = text_field(body, 'observation', 3000)
         alternative = text_field(body, 'alternative', 3000)
         evidence = text_field(body, 'evidence', 30)
-        if evidence not in {'stats_only', 'recording', 'memory'}:
+        if evidence not in EVIDENCE:
             raise ValueError("Choose the evidence you reviewed.")
         if not observation.strip():
             raise ValueError("Add an observation before saving.")
@@ -150,6 +155,20 @@ class ReviewStore:
             conn.execute("INSERT OR REPLACE INTO reviews VALUES (?,?,?,?,?,?,?,?,?)",
                          (match_id, moment_id, start, end, reason, observation, alternative, evidence, now()))
         return dict(saved=True)
+
+
+def sync_status(offset_s):
+    """Clock-sync flag for one stored recording offset. Always unverified.
+
+    verified is false: nothing here has compared the offset with the HUD clock.
+    A Live Client reading at record start is not that comparison, and a match
+    at one paused frame would not flip this flag. anchor is live_clock when
+    offset_s is a finite number of seconds, including 0. anchor is missing when
+    there is no finite offset. missing is not 0: offset 0 claims video 0 is
+    game 0, and that claim is still unchecked.
+    """
+    known = type(offset_s) in (int, float) and math.isfinite(offset_s)
+    return dict(verified=False, anchor='live_clock' if known else 'missing')
 
 
 def text_field(body, key, maximum):

@@ -155,6 +155,15 @@ No web fonts are shipped. Both faces are system fonts, which keeps the CSP at
   in the display face on bevelled steel, each with a `title` explaining it.
 - **Tooltips:** a small steel box with a `--steel-400` 1px border, shown on hover and
   focus. Used for definitions and caveats.
+- **Evidence tags:** the words Timeline, Recording and Recollection, in a rectangular
+  12px steel label (radius 0). The same words are the evidence-source options. Colour
+  does not distinguish them. `model_observed` and `human_verified` are named only in
+  that field's tooltip: this form stores the player's source, not a model check.
+- **Clock check:** inside the Recording fieldset, not a separate panel. A readout
+  lists Sync, Offset, Video time and Expected game clock. Sync is the word
+  Unverified with a `--warn` border and one tooltip. Clock shown is an input for the
+  HUD clock on the paused frame. A corrected offset changes the number on the page
+  only. Not a gauge, a light, or a pill.
 - **Status line** (replaces toasts): a strip at the bottom of the chassis showing "Saved
   22:41", fetch progress, or errors marked with a `--loss` bar. Nothing floats.
 
