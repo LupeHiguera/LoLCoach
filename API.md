@@ -255,10 +255,13 @@ table are ever served.
 - `limit_n`: the count is met when deaths before `before_ms` are at most this number.
 - `progress` (**new**): `null` unless `metric` is set. Otherwise the first
   `horizon` (5) Ahri or Zoe mid games whose `game_start_ms` is **after**
-  `updated_at`, oldest first. Later games are not in this check until the focus
-  is saved again. `n` is how many of those games are imported. `met` is how many
-  satisfied `limit_n`. `games[].deaths` is a timeline count, not a cause.
-  `opp_champion` can be `null`. `note` is the one caveat for this count.
+  `updated_at`, oldest first. A game that started at the same millisecond is not
+  included. Saving again replaces `updated_at` and the window starts over; earlier
+  games drop out. `n` is how many of those games are imported. `met` counts only
+  games whose death total is known and at most `limit_n`. A death at exactly
+  `before_ms` does not count. `games[].deaths` is `null` when `my_participant_id`
+  is missing; that game is `met: null` and included in `unknown`, not treated as
+  zero. `opp_champion` can be `null`. `note` is the one caveat for this count.
 
 ## POST /api/focus (current)
 

@@ -158,22 +158,38 @@ class ReviewStore:
                 ORDER BY m.game_start_ms ASC
                 LIMIT ?
             """, (since, FOCUS_HORIZON)).fetchall()
+            label = clock_label(before_ms)
             for item in rows:
+                if item['my_participant_id'] is None:
+                    games.append(dict(
+                        match_id=item['match_id'], game_start_ms=item['game_start_ms'],
+                        my_champion=item['my_champion'], opp_champion=item['opp_champion'],
+                        deaths=None, met=None,
+                        detail=f"Death count unavailable before {label}"))
+                    continue
                 deaths = conn.execute("""SELECT COUNT(*) FROM events
                     WHERE match_id=? AND type='CHAMPION_KILL' AND victim_id=? AND timestamp_ms < ?""",
                     (item['match_id'], item['my_participant_id'], before_ms)).fetchone()[0]
-                label = clock_label(before_ms)
                 games.append(dict(
                     match_id=item['match_id'], game_start_ms=item['game_start_ms'],
                     my_champion=item['my_champion'], opp_champion=item['opp_champion'],
                     deaths=deaths, met=deaths <= limit_n,
                     detail=f"{deaths} death{'' if deaths == 1 else 's'} before {label}"))
-        met = sum(game['met'] for game in games)
-        return dict(horizon=FOCUS_HORIZON, n=len(games), met=met, games=games,
+        known = [game for game in games if game['met'] is not None]
+        unknown = len(games) - len(known)
+        if unknown == 1:
+            unknown_note = " 1 game has no participant id, so that count is unknown, not zero."
+        elif unknown:
+            unknown_note = f" {unknown} games have no participant id, so those counts are unknown, not zero."
+        else:
+            unknown_note = ""
+        return dict(horizon=FOCUS_HORIZON, n=len(games), met=sum(game['met'] for game in known),
+                    unknown=unknown, games=games,
                     note=(f"Timeline deaths before {clock_label(before_ms)} in Ahri or Zoe mid games "
-                          f"that started after this focus was saved. Met means at most {limit_n}. "
-                          f"Showing {len(games)} of the next {FOCUS_HORIZON}. "
-                          "A count is a review prompt, not a cause."))
+                          f"that started after this focus was saved. A death at that exact time does not count. "
+                          f"Met means at most {limit_n}. Showing {len(games)} of the next {FOCUS_HORIZON}."
+                          f"{unknown_note} "
+                          "A count is a review prompt, not a cause. Saving the focus again starts the window over."))
 
     def save_focus(self, body):
         values = [text_field(body, key, 1000) for key in ('goal', 'why_text', 'check_text')]

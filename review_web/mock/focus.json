@@ -10,10 +10,11 @@
   "horizon": 5,
   "n": 2,
   "met": 1,
+  "unknown": 0,
   "games": [
    {"match_id": "demo-20", "game_start_ms": 1789804800000, "my_champion": "Ahri", "opp_champion": null, "deaths": 1, "met": false, "detail": "1 death before 10:00"},
    {"match_id": "demo-21", "game_start_ms": 1789956000000, "my_champion": "Ahri", "opp_champion": "Akali", "deaths": 0, "met": true, "detail": "0 deaths before 10:00"}
   ],
-  "note": "Timeline deaths before 10:00 in Ahri or Zoe mid games that started after this focus was saved. Met means at most 0. Showing 2 of the next 5. A count is a review prompt, not a cause."
+  "note": "Timeline deaths before 10:00 in Ahri or Zoe mid games that started after this focus was saved. A death at that exact time does not count. Met means at most 0. Showing 2 of the next 5. A count is a review prompt, not a cause. Saving the focus again starts the window over."
  }
 }

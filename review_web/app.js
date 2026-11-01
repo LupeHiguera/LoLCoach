@@ -452,8 +452,16 @@ function renderFocusProgress(f) {
     el.textContent = 'No Ahri or Zoe mid games imported after this focus. Fetch after the next game.';
     return;
   }
-  const body = progress.games.map(game => `<tr><td>${esc(day(game.game_start_ms))} ${esc(game.my_champion)} vs ${esc(game.opp_champion || '—')}</td><td>${esc(game.detail)}</td><td>${game.met ? 'met' : 'not met'}</td></tr>`).join('');
-  el.innerHTML = `<p>${progress.met} of ${progress.n} met (first ${progress.n} of the next ${progress.horizon}).</p><table><caption class="sr-only">Games after this focus</caption><tbody>${body}</tbody></table><p class="focus-note">${esc(progress.note)}</p>`;
+  const unknown = progress.unknown || 0;
+  const body = progress.games.map(game => {
+    const mark = game.met == null ? 'unknown' : game.met ? 'met' : 'not met';
+    return `<tr><td>${esc(day(game.game_start_ms))} ${esc(game.my_champion)} vs ${esc(game.opp_champion || '—')}</td><td>${esc(game.detail)}</td><td>${mark}</td></tr>`;
+  }).join('');
+  const counted = progress.n - unknown;
+  const head = unknown
+    ? `${progress.met} of ${counted} counted games met (${unknown} unknown, first ${progress.n} of the next ${progress.horizon}).`
+    : `${progress.met} of ${progress.n} met (first ${progress.n} of the next ${progress.horizon}).`;
+  el.innerHTML = `<p>${head}</p><table><caption class="sr-only">Games after this focus</caption><tbody>${body}</tbody></table><p class="focus-note">${esc(progress.note)}</p>`;
 }
 
 function showFocus(f) {

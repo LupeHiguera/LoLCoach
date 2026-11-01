@@ -93,8 +93,11 @@ def public_focus(focus, id_map):
         return focus
     games = [dict(game, match_id=id_map[game["match_id"]])
              for game in progress.get("games") or [] if game.get("match_id") in id_map]
-    return dict(focus, progress=dict(progress, games=games, n=len(games),
-                                     met=sum(bool(game.get("met")) for game in games)))
+    known = [game for game in games if game.get("met") is not None]
+    return dict(focus, progress=dict(
+        progress, games=games, n=len(games),
+        met=sum(bool(game["met"]) for game in known),
+        unknown=len(games) - len(known)))
 
 
 def build(league_path, notes_path, count=DEFAULT_COUNT, include_notes=False, riot_id=None):
