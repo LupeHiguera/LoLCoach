@@ -73,25 +73,43 @@ this PC. Cloud eval, if you later opt in, is sanitised text only.
    python fetch_matches.py --count 20
    ```
 
-4. **Link.** Attach the saved recording to that match, then open it in the app:
+4. **Link.** Attach the saved recording to that match. The match id is in the
+   review app's game list, or in `python analyze.py` output. It looks like
+   `NA1_` plus digits.
 
    ```powershell
    python recorder.py --link
    python review_app.py
    ```
 
-   The offset means `video seconds = game seconds + offset`. Confirm it with the
-   clock check in the death-clip section before treating a clip as synced.
+   On this PC `py` works wherever `python` would open the Store. The offset means
+   `video seconds = game seconds + offset`.
 
-5. **Clips.** Use the imported match id:
+5. **Check the clock before you trust a clip.** Pause the recording, read the
+   in-game clock, and pass that pair. The command prints what to do. It does not
+   open the file or change the offset. Add `--json` only when you want the raw
+   measurement. One reading cannot show drift; add a second pause at least 60 s
+   later. `--accept-sync` belongs on an extraction, not on this check.
+
+   ```powershell
+   python -m coach.clips --sync-only --offset -1.6 --checkpoint 60=1:01 --checkpoint 120=2:01
+   ```
+
+   `60=1:01` means video 1:00, clock showing 1:01. If the summary says to keep
+   the offset, keep it. If it prints a suggested offset, rerun clips with that
+   `--offset` into a new `--output`.
+
+6. **Clips.** Use the imported match id. Output is `data/clips/<match id>/`,
+   which is git-ignored. A second batch needs another `--output`.
 
    ```powershell
    python -m coach.clips --match NA1_123456789 --dry-run
    python -m coach.clips --match NA1_123456789
    ```
 
-6. **Eval.** Prepare one decision from a clip, then validate and run the local
-   model only. The example dataset is fabricated and already validates offline:
+7. **Eval.** Validate the fabricated dataset with no GPU and no key. For your
+   own clip, prepare one decision that is **before** the death, then observe and
+   review on loopback only. Do not send frames to a cloud model.
 
    ```powershell
    python -m coach.eval validate --dataset coach/examples/eval_dataset.json
@@ -181,34 +199,33 @@ per recorded death, with up to 60 seconds before and 10 seconds after it, plus a
 The metadata excludes player names, PUUIDs and raw API JSON. Video itself is not
 anonymised; keep the output local. Clip extraction does not run a model.
 
-On the Windows gaming PC:
+The command sequence is the Windows happy path above. Before the first ranked
+game, confirm the capture itself:
 
-1. First use Practice Tool to verify the **LoLCoach game** scene captures the game
-   window and the full HUD. Practice Tool may not appear in Match-V5; use a normal
-   recorded match for database linking and death clips. Configure Window Capture for the game. Keep the full HUD,
-   minimap and game clock visible, without resizing or cropping them. Start with
-   native resolution at 60 fps and NVENC H.264; check a short test recording for
-   legible HUD text and dropped frames before recording ranked games.
-2. Save recordings under `data/recordings/`. OBS recommends MKV for recovery after
-   interrupted recordings; remux to MP4 in OBS when an MP4 is needed.
-   See [OBS's recording guide](https://obsproject.com/kb/standard-recording-output-guide).
-3. In OBS, enable the WebSocket server on port 4455, use a password, and put that
-   password in `.env` as `OBS_WS_PASSWORD`. The existing recorder expects OBS at
-   `C:\Program Files\obs-studio\bin\64bit\obs64.exe`.
-4. Run `python recorder.py --arm` before a match. Leave that terminal
-   running through the end; Ctrl+C stops any capture owned by the recorder. The recorder is off by default, polls only
-   the local official game-clock endpoint, and displays no in-game advice.
-5. After a normal match, run `python fetch_matches.py --count 20` with a valid
-   Riot key, then `python recorder.py --link` to link its saved recording. Check
-   the recording against the visible game clock. The current OBS clock offset is approximate.
-   To check a clip: `death_clip_s` in the manifest is where the death should be. Pause
-   there and read the game clock. If it differs from the death time (`death_game_ms`),
-   the correct offset is `offset_s + (expected − shown)` in seconds, e.g. expecting
-   5:00 and seeing 4:58 gives `offset_s + 2`. Rerun with `--video` and that `--offset`
-   into a new `--output`.
-6. Install [FFmpeg](https://ffmpeg.org/download.html) with both `ffmpeg` and
-   `ffprobe` on PATH. These are external executables, not Python dependencies.
-   Extract clips using the imported match ID:
+- Use Practice Tool to verify the **LoLCoach game** scene captures the game
+  window and the full HUD. Practice Tool may not appear in Match-V5; use a normal
+  recorded match for database linking and death clips. Keep the full HUD, minimap
+  and game clock visible, without resizing or cropping them. Start with native
+  resolution at 60 fps and NVENC H.264; check a short test recording for legible
+  HUD text and dropped frames.
+- Save recordings under `data/recordings/`. OBS recommends MKV for recovery after
+  interrupted recordings; remux to MP4 in OBS when an MP4 is needed.
+  See [OBS's recording guide](https://obsproject.com/kb/standard-recording-output-guide).
+- Enable the WebSocket server on port 4455, use a password, and put that password
+  in `.env` as `OBS_WS_PASSWORD`. The recorder expects OBS at
+  `C:\Program Files\obs-studio\bin\64bit\obs64.exe`. The recorder is off by default,
+  polls only the local official game-clock endpoint, and displays no in-game advice.
+
+`death_clip_s` in the manifest is where the death should be. Prefer the
+`--sync-only` check in the happy path before you trust that pause. If you do
+read the clock by eye and it differs from `death_game_ms`, the whole-second
+correction is `offset_s + (expected − shown)`. Expecting 5:00 and seeing 4:58
+gives `offset_s + 2`. Rerun with `--video` and that `--offset` into a new
+`--output`.
+
+Install [FFmpeg](https://ffmpeg.org/download.html) with both `ffmpeg` and
+`ffprobe` on PATH. These are external executables, not Python dependencies.
+Extract clips using the imported match ID:
 
 ```sh
 python -m coach.clips --match NA1_123456789 --dry-run
@@ -258,12 +275,16 @@ stays unverified.
 
 ```powershell
 python -m coach.clips --sync-only --offset -1.6 --checkpoint 60=1:01 --checkpoint 120=2:01
+python -m coach.clips --sync-only --json --offset -1.6 --checkpoint 60=1:01 --checkpoint 120=2:01
 python -m coach.clips --match NA1_123456789 --video data/recordings/game.mkv --offset -1.6 --checkpoint 60=1:01 --checkpoint 600=10:01 --dry-run
 ```
 
-`--checkpoint` is `video=clock`. Both sides accept seconds (`61.6`) or `M:SS`
-(`1:01`). This reads no database and uploads nothing. Passing `--accept-sync`
-on an extraction writes the measurement into that batch's `manifest.json`.
+Without `--json`, `--sync-only` prints a short summary: each pause, whether the
+displayed second agrees, the drift estimate, and either "keep this offset" or a
+whole-second `--offset` to rerun. It does not write a file. `--checkpoint` is
+`video=clock`, in seconds (`61.6`) or `M:SS` (`1:01`). Passing `--accept-sync`
+on an extraction writes the measurement into that batch's `manifest.json` only
+when the summary would say the readings meet the check.
 `--before`, `--after`, `--db`, `--notes`, `--ffmpeg` and `--ffprobe` override defaults.
 `--dry-run` still probes the video but writes no output.
 
@@ -364,10 +385,11 @@ python -m coach.event_eval --gold coach/examples/events_gold.json --predictions 
 ```
 
 The examples are **fabricated fixtures**, with no gameplay images. The test split
-has five cases: missing footage, a visible position, Zoe with nothing readable,
-a human-checked Charm line, and a walk cited across two frames. One dev-split
-control stays out of the default run. Observation IDs start with `obs-` and are
-rejected when they copy a frame ID. The tests exercise
+has eight cases: missing footage, a visible position, Zoe with nothing readable,
+a human-checked Charm line, a walk cited across two frames, a checked recall,
+a non-death control with no visual statement, and a bubble in flight. One
+dev-split control stays out of the default run. Observation IDs start with `obs-`
+and are rejected when they copy a frame ID, including a change of case. The tests exercise
 real localhost image/text transport using tiny synthetic PNGs and simulate OpenAI
 responses. Passing them verifies plumbing, not model coaching quality. No paid
 requests are needed. The FFmpeg integration test in the full suite skips when FFmpeg
