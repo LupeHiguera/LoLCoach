@@ -985,7 +985,7 @@
    "reason": "pressured",
    "observation": "Pushed past the river brush with no vision while their jungler was unseen for 40 s.",
    "alternative": "Ward the river brush before stepping up after 3:00.",
-   "evidence": "stats_only",
+   "evidence": "recording",
    "updated_at": "2026-09-20T21:50:00+00:00"
   }
  ],

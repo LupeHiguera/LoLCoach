@@ -1,5 +1,19 @@
 {
  "goal": "0 deaths before 10:00",
  "why_text": "4 of my last 6 losses had a death before 10:00 (timeline only).",
- "check_text": "Count games with no death before 10:00 over the next 3."
+ "check_text": "At most 0 deaths before 10:00 in the next 5 Ahri or Zoe mid games.",
+ "metric": "deaths_before",
+ "before_ms": 600000,
+ "limit_n": 0,
+ "updated_at": "2026-09-01T00:00:00+00:00",
+ "progress": {
+  "horizon": 5,
+  "n": 2,
+  "met": 1,
+  "games": [
+   {"match_id": "demo-20", "game_start_ms": 1789804800000, "my_champion": "Ahri", "opp_champion": null, "deaths": 1, "met": false, "detail": "1 death before 10:00"},
+   {"match_id": "demo-21", "game_start_ms": 1789956000000, "my_champion": "Ahri", "opp_champion": "Akali", "deaths": 0, "met": true, "detail": "0 deaths before 10:00"}
+  ],
+  "note": "Timeline deaths before 10:00 in Ahri or Zoe mid games that started after this focus was saved. Met means at most 0. Showing 2 of the next 5. A count is a review prompt, not a cause."
+ }
 }

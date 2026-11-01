@@ -27,6 +27,8 @@ from review_data import ReviewStore, connect
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_COUNT = 5
+EMPTY_FOCUS = {"goal": "", "why_text": "", "check_text": "", "metric": None,
+               "before_ms": None, "limit_n": None, "updated_at": None, "progress": None}
 # Participant fields that identify a player. Anything else in the raw JSON is game stats.
 IDENTITY_KEYS = ("puuid", "riotIdGameName", "riotIdName", "riotIdTagline", "summonerName",
                  "summonerId", "accountId")
@@ -84,6 +86,17 @@ def scrubbed_stats_db(conn, id_map):
     return mem
 
 
+def public_focus(focus, id_map):
+    """Rewrite progress match ids that are in this snapshot; drop the rest."""
+    progress = focus.get("progress")
+    if not progress:
+        return focus
+    games = [dict(game, match_id=id_map[game["match_id"]])
+             for game in progress.get("games") or [] if game.get("match_id") in id_map]
+    return dict(focus, progress=dict(progress, games=games, n=len(games),
+                                     met=sum(bool(game.get("met")) for game in games)))
+
+
 def build(league_path, notes_path, count=DEFAULT_COUNT, include_notes=False, riot_id=None):
     """{relative path: JSON-able data} for demo/data. Raises ScrubError on a leak."""
     store = ReviewStore(league_path, notes_path)
@@ -97,8 +110,7 @@ def build(league_path, notes_path, count=DEFAULT_COUNT, include_notes=False, rio
         detail["reviews"] = ([dict(r, match_id=demo) for r in detail["reviews"]]
                              if include_notes else [])
         files[f"match/{demo}.json"] = detail
-    files["focus.json"] = (store.focus() if include_notes
-                           else {"goal": "", "why_text": "", "check_text": ""})
+    files["focus.json"] = public_focus(store.focus(), id_map) if include_notes else EMPTY_FOCUS
     with closing(connect(league_path, True)) as conn:
         with closing(scrubbed_stats_db(conn, id_map)) as mem:
             files["charm.json"] = analyze.charm_report(mem)

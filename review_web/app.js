@@ -339,6 +339,16 @@ function momentRows() {
 
 const BASIS = {death: 'event timestamp', deficit: 'sampled snapshot', farm: 'sampled snapshots', kill: 'kill event', custom: 'your pick'};
 
+function evidenceTag(review) {
+  const label = EVIDENCE[review.evidence] || review.evidence;
+  let extra = '';
+  if (review.evidence === 'recording') {
+    const linked = state.detail && state.detail.recording && state.detail.recording.status === 'linked';
+    extra = linked ? ', file linked' : ', no file linked';
+  }
+  return `<span class="evidence-tag">Evidence: ${esc(label)}${esc(extra)}</span>`;
+}
+
 function renderMoments() {
   const d = state.detail, rows = momentRows();
   state.rows = rows;
@@ -350,7 +360,7 @@ function renderMoments() {
       <td class="num">${span}</td>
       <td><button class="linkbtn" type="button">${esc(m.title)}</button></td>
       <td class="cell-note">${BASIS[m.kind] || esc(m.kind)}</td>
-      <td>${r ? `${esc(r.reason)} · ${esc(EVIDENCE[r.evidence] || r.evidence)}<br><span class="cell-note">${esc(r.observation.slice(0, 90))}${r.observation.length > 90 ? '…' : ''}</span>` : '<span class="cell-note">—</span>'}</td>
+      <td>${r ? `${esc(r.reason)}<br>${evidenceTag(r)}<span class="cell-note">${esc(r.observation.slice(0, 90))}${r.observation.length > 90 ? '…' : ''}</span>` : '<span class="cell-note">—</span>'}</td>
     </tr>`;
   }).join('') || emptyRow(4, d.frames.length
     ? 'No automatic prompts in this game. Click a point on the chart to review your own moment.'
@@ -406,21 +416,57 @@ $('review-form').onsubmit = async e => {
 $('use-focus').onclick = () => {
   if (state.focusDirty && !confirm('Replace the unsaved focus draft?')) return;
   const m = state.detail.match;
+  const tag = EVIDENCE[$('evidence').value] || $('evidence').value;
   openFocusForm();
   $('goal').value = $('alternative').value.slice(0, 1000);
-  $('why').value = `${m.my_champion} vs ${m.opp_champion || '?'}, ${clock(state.moment.start_ms)}: ${$('observation').value}`.slice(0, 1000);
-  $('check').value = '';
+  $('why').value = `${m.my_champion} vs ${m.opp_champion || '?'}, ${clock(state.moment.start_ms)}, evidence: ${tag}. ${$('observation').value}`.slice(0, 1000);
+  if (state.moment.kind === 'death') {
+    $('focus-metric').value = 'deaths_before';
+    $('focus-before').value = '10';
+    $('focus-limit').value = '0';
+    $('check').value = 'At most 0 deaths before 10:00 in the next 5 Ahri or Zoe mid games.';
+  } else {
+    $('check').value = '';
+  }
+  syncFocusMetricFields();
   state.focusDirty = true;
   $('goal').focus();
 };
 
 // ---------------------------------------------------------------- focus
+function syncFocusMetricFields() {
+  const on = $('focus-metric').value === 'deaths_before';
+  $('focus-before').disabled = !on;
+  $('focus-limit').disabled = !on;
+}
+
+function renderFocusProgress(f) {
+  const el = $('focus-progress');
+  if (!f || !f.goal) { el.replaceChildren(); return; }
+  if (!f.metric) {
+    el.textContent = 'No timeline count. The check line is a note.';
+    return;
+  }
+  const progress = f.progress;
+  if (!progress || !progress.n) {
+    el.textContent = 'No Ahri or Zoe mid games imported after this focus. Fetch after the next game.';
+    return;
+  }
+  const body = progress.games.map(game => `<tr><td>${esc(day(game.game_start_ms))} ${esc(game.my_champion)} vs ${esc(game.opp_champion || '—')}</td><td>${esc(game.detail)}</td><td>${game.met ? 'met' : 'not met'}</td></tr>`).join('');
+  el.innerHTML = `<p>${progress.met} of ${progress.n} met (first ${progress.n} of the next ${progress.horizon}).</p><table><caption class="sr-only">Games after this focus</caption><tbody>${body}</tbody></table><p class="focus-note">${esc(progress.note)}</p>`;
+}
+
 function showFocus(f) {
   state.focus = f;
   $('focus-goal').textContent = f.goal || 'No focus set.';
   $('focus-why').textContent = f.goal ? (f.why_text || '') : 'Press Edit, or use "Use as focus" on a saved review.';
   $('focus-check').textContent = f.check_text ? `Check: ${f.check_text}` : '';
   $('goal').value = f.goal || ''; $('why').value = f.why_text || ''; $('check').value = f.check_text || '';
+  $('focus-metric').value = f.metric || '';
+  $('focus-before').value = f.before_ms ? String(f.before_ms / 60000) : '10';
+  $('focus-limit').value = f.limit_n == null ? '0' : String(f.limit_n);
+  syncFocusMetricFields();
+  renderFocusProgress(f);
   renderBanner();
 }
 function openFocusForm() { $('focus-form').hidden = false; $('edit-focus').hidden = true; }
@@ -432,12 +478,19 @@ $('cancel-focus').onclick = () => {
   showFocus(state.focus || {goal: '', why_text: '', check_text: ''});
   closeFocusForm();
 };
+$('focus-metric').onchange = () => { syncFocusMetricFields(); state.focusDirty = true; };
 $('focus-form').oninput = () => { state.focusDirty = true; };
 $('focus-form').onsubmit = async e => {
   e.preventDefault();
   const button = $('save-focus'); button.disabled = true;
+  const body = {goal: $('goal').value, why_text: $('why').value, check_text: $('check').value,
+    metric: $('focus-metric').value};
+  if (body.metric === 'deaths_before') {
+    body.before_ms = Math.round(Number($('focus-before').value) * 60000);
+    body.limit_n = Number($('focus-limit').value);
+  }
   try {
-    showFocus(await api('/api/focus', {goal: $('goal').value, why_text: $('why').value, check_text: $('check').value}));
+    showFocus(await api('/api/focus', body));
     closeFocusForm();
     status(`Focus saved ${hhmm()}`);
   } catch (err) {

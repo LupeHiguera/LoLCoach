@@ -94,7 +94,9 @@ class ExportTests(unittest.TestCase):
         self.assertEqual([g["match_id"] for g in charm["games"]], ["demo-1", "demo-2"])
         self.assertEqual(charm["summary"]["all"]["n"], 2)
         self.assertEqual([c["champion"] for c in files["profile.json"]["champions"]], ["Ahri"])
-        self.assertEqual(files["focus.json"], {"goal": "", "why_text": "", "check_text": ""})
+        self.assertEqual(files["focus.json"], {"goal": "", "why_text": "", "check_text": "",
+                                              "metric": None, "before_ms": None, "limit_n": None,
+                                              "updated_at": None, "progress": None})
         self.assertEqual(files["recorder.json"]["armed"], False)
 
     def test_include_notes_is_opt_in_and_still_checked(self):

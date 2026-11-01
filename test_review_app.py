@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 from fetch_matches import SCHEMA, store_match
 from review_app import Fetcher, ReviewStore, fetch_message, make_handler, static_file
-from review_data import find_moments, kill_feed, score
+from review_data import find_moments, iso_to_ms, kill_feed, score
 from test_analyze import ME, match as riot_match
 
 
@@ -366,6 +366,77 @@ class StaticFileTests(unittest.TestCase):
                     '/fonts\a.woff2', '/.env', '/missing.css', '/fonts']:
             with self.subTest(bad=bad):
                 self.assertIsNone(static_file(bad, self.web))
+
+
+class FocusTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db, self.notes = [Path(self.tmp.name) / name for name in ('matches.db', 'reviews.db')]
+        with closing(sqlite3.connect(self.db)) as conn, conn:
+            conn.executescript('''
+                CREATE TABLE matches(match_id TEXT, game_start_ms INTEGER, duration_s INTEGER,
+                patch TEXT, queue_id INTEGER, my_champion TEXT, my_position TEXT, opp_champion TEXT,
+                win INTEGER, my_participant_id INTEGER, opp_participant_id INTEGER);
+                CREATE TABLE timelines(match_id TEXT, frame_interval_ms INTEGER);
+                CREATE TABLE events(match_id TEXT, type TEXT, timestamp_ms INTEGER, victim_id INTEGER);
+            ''')
+        self.store = ReviewStore(self.db, self.notes)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add(self, match_id, start, champion='Ahri', position='MIDDLE', deaths=()):
+        with closing(sqlite3.connect(self.db)) as conn, conn:
+            conn.execute("INSERT INTO matches VALUES (?,?,1200,'16.18',420,?,?,'Zoe',1,1,6)",
+                         (match_id, start, champion, position))
+            conn.execute("INSERT INTO timelines VALUES (?,60000)", (match_id,))
+            conn.executemany("INSERT INTO events VALUES (?,?,?,1)",
+                             [(match_id, 'CHAMPION_KILL', ts) for ts in deaths])
+
+    def test_deaths_before_counts_only_the_next_five_games(self):
+        self.add('already-played', 1_000, deaths=(10_000,))
+        saved = self.store.save_focus(dict(goal='0 deaths before 10:00', why_text='Timeline only.',
+                                           check_text='At most 0 before 10:00.', metric='deaths_before',
+                                           before_ms=600_000, limit_n=0))
+        since = iso_to_ms(saved['updated_at'])
+        self.add('early', since + 1_000, deaths=(300_000,))
+        self.add('clean', since + 2_000)
+        self.add('late-death', since + 3_000, deaths=(700_000,))
+        self.add('support', since + 4_000, champion='Lulu', position='UTILITY', deaths=(10_000,))
+        self.add('zoe', since + 5_000, champion='Zoe', deaths=(100_000,))
+        self.add('sixth', since + 6_000)
+        self.add('seventh', since + 7_000, deaths=(10_000,))
+        progress = self.store.focus()['progress']
+        self.assertEqual([game['match_id'] for game in progress['games']],
+                         ['early', 'clean', 'late-death', 'zoe', 'sixth'])
+        self.assertEqual((progress['n'], progress['met'], progress['horizon']), (5, 3, 5))
+        self.assertEqual(progress['games'][0]['detail'], '1 death before 10:00')
+        self.assertFalse(progress['games'][0]['met'])
+        self.assertTrue(progress['games'][1]['met'])
+
+    def test_a_note_is_not_graded_and_bad_counts_are_rejected(self):
+        saved = self.store.save_focus(dict(goal='Watch the wave'))
+        self.assertIsNone(saved['metric'])
+        self.assertIsNone(saved['progress'])
+        for body in (dict(goal='x', metric='charm_rate'),
+                     dict(goal='x', metric='deaths_before', before_ms=True, limit_n=0),
+                     dict(goal='x', metric='deaths_before', before_ms=1000, limit_n=0),
+                     dict(goal='x', metric='deaths_before', before_ms=600_000, limit_n=-1)):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                self.store.save_focus(body)
+
+    def test_older_focus_table_gains_count_columns(self):
+        notes = Path(self.tmp.name) / 'old-notes.db'
+        with closing(sqlite3.connect(notes)) as conn, conn:
+            conn.execute("""CREATE TABLE focus (id INTEGER PRIMARY KEY CHECK(id=1), goal TEXT,
+                why_text TEXT, check_text TEXT, updated_at TEXT)""")
+            conn.execute("INSERT INTO focus VALUES (1,'old goal','why','check','2020-01-01T00:00:00+00:00')")
+        opened = ReviewStore(self.db, notes)
+        saved = opened.focus()
+        self.assertEqual(saved['goal'], 'old goal')
+        self.assertIsNone(saved['progress'])
+        graded = opened.save_focus(dict(goal='old goal', metric='deaths_before'))
+        self.assertEqual((graded['before_ms'], graded['limit_n'], graded['progress']['n']), (600_000, 0, 0))
 
 
 if __name__ == '__main__':

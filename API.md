@@ -234,17 +234,42 @@ table are ever served.
 
 ```json
 {"goal": "0 deaths before 10:00", "why_text": "3 of my last 5 games...",
- "check_text": "Deaths before 10:00 in the next 5 games"}
+ "check_text": "Deaths before 10:00 in the next 5 games",
+ "metric": "deaths_before", "before_ms": 600000, "limit_n": 0,
+ "updated_at": "2026-10-02T18:00:00+00:00",
+ "progress": {"horizon": 5, "n": 2, "met": 1, "games": [
+   {"match_id": "NA1_1", "game_start_ms": 1789967389349, "my_champion": "Ahri",
+    "opp_champion": "Akali", "deaths": 1, "met": false,
+    "detail": "1 death before 10:00"}
+ ], "note": "Timeline deaths before 10:00 ... A count is a review prompt, not a cause."}}
 ```
 
-All three are `""` when no focus has been saved.
+`goal`, `why_text` and `check_text` are `""` when no focus has been saved. `metric`,
+`before_ms`, `limit_n`, `updated_at` and `progress` are then `null`.
+
+- `metric`: `deaths_before` or `null`. `null` means the check line is only a note.
+- `before_ms`: game-clock ms. Deaths with `timestamp_ms` strictly below this count.
+- `limit_n`: the count is met when deaths before `before_ms` are at most this number.
+- `progress` (**new**): `null` unless `metric` is set. Otherwise the first
+  `horizon` (5) Ahri or Zoe mid games whose `game_start_ms` is **after**
+  `updated_at`, oldest first. Later games are not in this check until the focus
+  is saved again. `n` is how many of those games are imported. `met` is how many
+  satisfied `limit_n`. `games[].deaths` is a timeline count, not a cause.
+  `opp_champion` can be `null`. `note` is the one caveat for this count.
 
 ## POST /api/focus (current)
 
-Body: `{"goal": str ≤1000, "why_text": str ≤1000, "check_text": str ≤1000}`. Strings
-are trimmed. Missing keys count as `""`. Response: the saved focus (same shape as GET).
-400 `"Write a practice goal first."` if `goal` is blank; 400
-`"Invalid or too long: <key>"` if a value is not a string or too long.
+Body: `{"goal": str ≤1000, "why_text": str ≤1000, "check_text": str ≤1000,
+"metric": "" | "deaths_before", "before_ms": int, "limit_n": int}`. Strings are
+trimmed. Missing string keys count as `""`. Response: the saved focus (same shape
+as GET). Saving replaces `updated_at`, so the five-game window starts over.
+
+400 `"Write a practice goal first."` if `goal` is blank. 400
+`"Invalid or too long: <key>"` if a string value is not a string or too long.
+400 `"Choose a timeline count or leave it blank."` for any other `metric`.
+When `metric` is `deaths_before`, `before_ms` defaults to `600000` and `limit_n`
+to `0`. 400 if `before_ms` is not an integer from 60000 to 1200000, or `limit_n`
+is not an integer from 0 to 20. Booleans are rejected.
 
 ## POST /api/reviews (current)
 

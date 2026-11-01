@@ -29,10 +29,15 @@
       <p id="focus-goal" class="focus-goal"></p>
       <p id="focus-why" class="dim"></p>
       <p id="focus-check" class="focus-check"></p>
+      <div id="focus-progress" class="focus-progress"></div>
       <form id="focus-form" hidden>
         <div class="stack"><label for="goal">Goal for the next games</label><input id="goal" maxlength="1000" required placeholder="0 deaths before 10:00"></div>
-        <div class="stack"><label for="why">Evidence</label><textarea id="why" maxlength="1000" placeholder="4 of the last 6 losses had a death before 10:00"></textarea></div>
-        <div class="stack"><label for="check">Check after playing</label><input id="check" maxlength="1000" placeholder="Games with no death before 10:00, out of 3"></div>
+        <div class="stack"><label for="why">Why this goal</label><textarea id="why" maxlength="1000" placeholder="4 of the last 6 losses had a death before 10:00"></textarea></div>
+        <div class="stack"><label for="check">Check after playing</label><input id="check" maxlength="1000" placeholder="At most 0 deaths before 10:00, next 5 games"></div>
+        <div class="stack"><label for="focus-metric">Count from the timeline</label>
+          <select id="focus-metric"><option value="">Note only</option><option value="deaths_before">Deaths before a game time</option></select></div>
+        <div class="stack"><label for="focus-before">Before (minutes)</label><input id="focus-before" type="number" min="1" max="20" step="1" value="10"></div>
+        <div class="stack"><label for="focus-limit">At most</label><input id="focus-limit" type="number" min="0" max="20" step="1" value="0"></div>
         <div class="actions"><button class="btn primary" type="submit" id="save-focus">Save focus</button><button class="btn" type="button" id="cancel-focus">Cancel</button></div>
       </form>
     </div>
@@ -101,7 +106,7 @@
         <h2 id="moments-h">Moments</h2>
         <span class="meta" id="moment-count"></span>
         <span class="meta">J / K: previous / next</span>
-        <span class="tip-wrap"><button class="info" type="button" aria-label="How moments are chosen" aria-describedby="tip-moments">ⓘ</button><span class="tip" role="tooltip" id="tip-moments">Death: an event timestamp; the minute before it is context to inspect. Gold deficit: the first sampled snapshot 300+ gold behind the lane opponent. No lane CS: no increase for at least two minutes after 2:00; jungle CS is excluded and missing snapshots break a gap. None of these prove a mistake or a cause.</span></span>
+        <span class="tip-wrap"><button class="info" type="button" aria-label="How moments are chosen" aria-describedby="tip-moments">ⓘ</button><span class="tip" role="tooltip" id="tip-moments">Death: an event timestamp; the minute before it is context to inspect. Gold deficit: the first sampled snapshot 300+ gold behind the lane opponent. No lane CS: no increase for at least two minutes after 2:00; jungle CS is excluded and missing snapshots break a gap. None of these prove a mistake or a cause. Evidence is the source saved with the note: timeline only, recording, or recollection. A recording tag also says whether a file is linked; it does not prove the file was watched.</span></span>
       </div>
       <div class="scroll moments-scroll">
         <table class="stat">
