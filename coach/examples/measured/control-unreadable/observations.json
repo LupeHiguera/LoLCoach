@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-unreadable",
+  "observations": [],
+  "unknowns": [
+    "Fabricated fixture: the frames are not described.",
+    "No visible fact is established, so a mistake is not established either.",
+    "Game-clock alignment is not verified."
+  ]
+}

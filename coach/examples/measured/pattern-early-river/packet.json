@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-pattern-early-river",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 220000,
+  "decision_ms": 250000,
+  "sync_verified": false,
+  "focus": "Fabricated early river death.",
+  "frames": [
+    {"id": "frame-220000", "game_ms": 220000, "image_file": "frame-220000.png"},
+    {"id": "frame-235000", "game_ms": 235000, "image_file": "frame-235000.png"},
+    {"id": "frame-250000", "game_ms": 250000, "image_file": "frame-250000.png"}
+  ],
+  "events": [
+    {
+      "id": "event-250000-0",
+      "game_ms": 250000,
+      "source": "riot_timeline",
+      "visibility": "global_event_not_player_view",
+      "side": "enemy",
+      "killer": "Nocturne",
+      "victim": "Ahri",
+      "assists": ["Syndra"],
+      "me": "death"
+    }
+  ],
+  "knowledge": []
+}

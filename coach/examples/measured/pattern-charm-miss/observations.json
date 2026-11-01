@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-pattern-charm-miss",
+  "observations": [
+    {
+      "id": "obs-charm-frames",
+      "game_ms": 492000,
+      "statement": "Fabricated fixture for a charm-cast hypothesis: a projectile is visible leaving the mid champion in the first cited frame. The second cited frame does not show a charm mark on the lane opponent. The frames do not confirm the spell or a miss.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-480000", "frame-492000"]
+    }
+  ],
+  "unknowns": [
+    "Fabricated fixture, not a recording.",
+    "The cast key and the projectile's spell name are unknown.",
+    "A hit or a miss is not confirmed by these frames.",
+    "Game-clock alignment is not verified."
+  ]
+}

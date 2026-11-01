@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-pattern-charm-miss",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 480000,
+  "decision_ms": 505000,
+  "sync_verified": false,
+  "focus": "Fabricated charm-cast hypothesis from two frames.",
+  "frames": [
+    {"id": "frame-480000", "game_ms": 480000, "image_file": "frame-480000.png"},
+    {"id": "frame-492000", "game_ms": 492000, "image_file": "frame-492000.png"},
+    {"id": "frame-505000", "game_ms": 505000, "image_file": "frame-505000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

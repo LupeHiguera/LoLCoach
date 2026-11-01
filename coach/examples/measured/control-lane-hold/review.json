@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-lane-hold",
+  "assessment": "reviewable",
+  "claims": [
+    {
+      "statement": "Fabricated fixture: the cited observation shows the mid champion on her side of the lane. That evidence does not support a mistake.",
+      "kind": "hypothesis",
+      "evidence_refs": ["obs-lane-hold"]
+    }
+  ],
+  "alternative": null,
+  "practice_focus": null,
+  "missing_evidence": [
+    "Health and units outside the frame are unknown."
+  ]
+}

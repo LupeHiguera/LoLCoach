@@ -94,6 +94,51 @@ class MomentTests(unittest.TestCase):
             run.assert_not_called()
             contracts.validate_packet(json.loads(stdout.getvalue()))
 
+    def test_non_death_clip_id_is_a_prepare_path(self):
+        manifest = harness.read_json(Path(__file__).parent / 'coach' / 'examples' / 'clip_manifest.json')
+        death = next(clip for clip in manifest['clips'] if clip['moment_id'] == 'death-300000')
+        control = next(clip for clip in manifest['clips'] if clip['moment_id'] == 'control-440000')
+        self.assertIsNone(control['death_game_ms'])
+        self.assertEqual(control['events'], [])
+        packet, clip = harness.make_packet(manifest, 'control-440000', 440000, frame_count=2,
+                                           focus='Fabricated non-death lane check')
+        self.assertIs(clip, control)
+        self.assertTrue(packet['moment_id'].startswith('moment-'))
+        self.assertNotIn('control-440000', json.dumps(packet))
+        self.assertNotIn('death-', packet['moment_id'])
+        self.assertEqual(packet['events'], [])
+        self.assertEqual(packet['focus'], 'Fabricated non-death lane check')
+        self.assertEqual(packet['decision_ms'], 440000)
+        self.assertLessEqual(packet['start_ms'], 440000)
+        self.assertLess(packet['decision_ms'], control['game_end_ms'])
+        with self.assertRaisesRegex(ValueError, 'non-death'):
+            harness.make_packet(manifest, 'control-440000', control['game_end_ms'])
+        bounded = copy.deepcopy(control)
+        bounded['death_game_ms'] = 430000
+        manifest['clips'][manifest['clips'].index(control)] = bounded
+        with self.assertRaisesRegex(ValueError, 'before the death'):
+            harness.make_packet(manifest, 'control-440000', 440000)
+        with self.assertRaisesRegex(ValueError, 'before the death'):
+            harness.make_packet(manifest, death['moment_id'], death['death_game_ms'])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'manifest.json'
+            source.write_text(json.dumps(harness.read_json(
+                Path(__file__).parent / 'coach' / 'examples' / 'clip_manifest.json')))
+            output = root / 'prepared'
+            stdout = io.StringIO()
+            with redirect_stdout(stdout), mock.patch.object(harness, 'run_media') as run:
+                harness.main(['prepare', '--manifest', str(source), '--moment', 'control-440000',
+                              '--at-ms', '440000', '--frames', '2',
+                              '--focus', 'Fabricated non-death lane check',
+                              '--output', str(output), '--dry-run'])
+            self.assertFalse(output.exists())
+            run.assert_not_called()
+            preview = json.loads(stdout.getvalue())
+            contracts.validate_packet(preview)
+            self.assertEqual(preview['moment_id'], packet['moment_id'])
+            self.assertEqual(preview['events'], [])
+
 
 class ContractTests(unittest.TestCase):
     def test_rejects_history_private_fields_future_evidence_and_bool_timestamps(self):

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-pattern-early-river",
+  "observations": [
+    {
+      "id": "obs-river-position",
+      "game_ms": 235000,
+      "statement": "Fabricated fixture: the mid champion is in the river, off the mid lane, in the cited frame. No enemy unit is described in that frame.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-235000"]
+    }
+  ],
+  "unknowns": [
+    "Fabricated fixture, not a recording.",
+    "The timeline death is a global event and does not show what was on screen.",
+    "Path into the river, wards, and cooldowns are unknown.",
+    "Game-clock alignment is not verified."
+  ]
+}

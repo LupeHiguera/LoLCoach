@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-lane-hold",
+  "observations": [
+    {
+      "id": "obs-lane-hold",
+      "game_ms": 120000,
+      "statement": "Fabricated fixture: both mid champions are on their own side of the lane in the cited frame, with minions between them.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-120000"]
+    }
+  ],
+  "unknowns": [
+    "Fabricated fixture, not a recording.",
+    "Health, cooldowns, and units outside the frame are unknown.",
+    "Game-clock alignment is not verified."
+  ]
+}

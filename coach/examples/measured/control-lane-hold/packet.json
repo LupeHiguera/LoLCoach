@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-lane-hold",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Orianna",
+  "start_ms": 90000,
+  "decision_ms": 120000,
+  "sync_verified": false,
+  "focus": "Fabricated lane hold beside the mid champion's side.",
+  "frames": [
+    {"id": "frame-90000", "game_ms": 90000, "image_file": "frame-90000.png"},
+    {"id": "frame-120000", "game_ms": 120000, "image_file": "frame-120000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

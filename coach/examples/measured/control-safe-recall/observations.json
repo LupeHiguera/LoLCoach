@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-safe-recall",
+  "observations": [
+    {
+      "id": "obs-safe-recall",
+      "game_ms": 745000,
+      "statement": "Fabricated fixture: the mid champion is beside her turret in the cited frame, and a recall channel is visible. No enemy champion is visible in that frame.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-745000"]
+    }
+  ],
+  "unknowns": [
+    "Fabricated fixture, not a recording.",
+    "Enemies outside the frame, cooldowns, and gold are unknown.",
+    "Game-clock alignment is not verified."
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-unreadable",
+  "assessment": "needs_more_evidence",
+  "claims": [],
+  "alternative": null,
+  "practice_focus": null,
+  "missing_evidence": [
+    "No visual observation was supplied for these frames."
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-pattern-farm-gap",
+  "observations": [
+    {
+      "id": "obs-creep-count",
+      "game_ms": 600000,
+      "statement": "Fabricated fixture: in the cited frame the HUD creep count for the mid champion is lower than the count for the lane opponent. The frame does not show how the gap opened.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-600000"]
+    }
+  ],
+  "unknowns": [
+    "Fabricated fixture, not a recording. The counts are not taken from a match database.",
+    "Recalls, roams, and missed last-hits in the previous minutes are unknown.",
+    "A lower count does not by itself establish a cause.",
+    "Game-clock alignment is not verified."
+  ]
+}
