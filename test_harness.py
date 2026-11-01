@@ -127,6 +127,21 @@ class ContractTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 contracts.validate_observations(o, p, model_output=True)
 
+    def test_observation_ids_are_not_frame_ids(self):
+        p = packet()
+        frame_id = p['frames'][-1]['id']
+        o = observations(p)
+        o['observations'][0]['id'] = frame_id
+        with self.assertRaisesRegex(ValueError, 'identifier'):
+            contracts.validate_observations(o, p, model_output=True)
+        o = observations(p)
+        o['observations'][0]['id'] = 'obs-' + frame_id
+        contracts.validate_observations(o, p, model_output=True)
+        r = review(p)
+        r['claims'][0]['evidence_refs'] = [frame_id]
+        with self.assertRaisesRegex(ValueError, 'not frame IDs'):
+            contracts.validate_review(r, p, observations(p))
+
     def test_stored_evidence_can_be_human_verified_but_model_output_cannot(self):
         p = packet()
         o = observations(p)

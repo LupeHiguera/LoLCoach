@@ -25,6 +25,10 @@ demo (UI agent). Change this file first, then the code.
   `source: local_vision`, `verification: model_observed`. Stored evidence may also use
   `verification: human_verified` (checked by the player) and `source: human`
   (which requires `human_verified`).
+  Observation IDs match `obs-…`. Frame IDs match `frame-<game ms>` and are not
+  valid observation IDs. An observation cites frame IDs only. A review cites
+  observation or event IDs, not frame IDs. Reusing a frame ID as an observation
+  ID is rejected.
 - **review**: the same moment ID, assessment (`reviewable` or `needs_more_evidence`),
   cited observations/hypotheses, an optional alternative with tradeoff and citations,
   optional practice focus, and missing evidence. Insufficient evidence means no

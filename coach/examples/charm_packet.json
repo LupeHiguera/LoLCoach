@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-charm",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 200000,
+  "decision_ms": 220000,
+  "sync_verified": true,
+  "focus": "Charm line; fabricated fixture with a human-checked observation",
+  "frames": [
+    {"id": "frame-200000", "game_ms": 200000, "image_file": "frame-200000.png"},
+    {"id": "frame-220000", "game_ms": 220000, "image_file": "frame-220000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

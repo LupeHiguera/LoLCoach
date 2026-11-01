@@ -18,13 +18,18 @@ EXAMPLES = Path(__file__).parent / 'coach' / 'examples'
 
 
 def answer(context):
+    """Screening stub. It cites whatever observation the case actually has."""
     moment = context['packet']['moment_id']
-    if context['observations']['observations']:
+    found = context['observations']['observations']
+    if found:
+        ref = found[0]['id']
         return dict(schema_version=1, moment_id=moment, assessment='reviewable',
-                    claims=[dict(statement='Low health and a visible opponent make advancing risky.',
-                                 kind='hypothesis', evidence_refs=['obs-position'])],
-                    alternative=dict(action='Move toward the visible turret.', tradeoff='Give up pressure.',
-                                     evidence_refs=['obs-position']), practice_focus='Review low-health advances.',
+                    claims=[dict(statement='The cited stills are the only evidence used here.',
+                                 kind='hypothesis', evidence_refs=[ref])],
+                    alternative=dict(action='Take the option described by the cited observation.',
+                                     tradeoff='Give up the current position.',
+                                     evidence_refs=[ref]),
+                    practice_focus='Review this situation the same way next game.',
                     missing_evidence=['Cooldowns are unknown.'])
     return dict(schema_version=1, moment_id=moment, assessment='needs_more_evidence', claims=[],
                 alternative=None, practice_focus=None, missing_evidence=['No gameplay frames were supplied.'])
@@ -47,6 +52,8 @@ class DatasetTests(unittest.TestCase):
         shutil.copytree(EXAMPLES, self.root / 'examples')
         self.dataset = self.root / 'examples' / 'eval_dataset.json'
         self.output = self.root / 'run'
+        loaded = harness.read_json(self.dataset)
+        self.n = sum(case['split'] == 'test' for case in loaded['cases'])
 
     def change_dataset(self, change):
         data = harness.read_json(self.dataset)
@@ -105,8 +112,8 @@ class DatasetTests(unittest.TestCase):
 
     def test_run_report_and_resume_do_not_repeat_requests_or_send_labels(self):
         summary, calls = self.run_local()
-        self.assertEqual(summary['counts']['ok'], 2)
-        self.assertEqual(summary['assessment_matches'], 2)
+        self.assertEqual(summary['counts']['ok'], self.n)
+        self.assertEqual(summary['assessment_matches'], self.n)
         self.assertTrue(summary['synthetic'])
         for request in calls:
             self.assertEqual(len(request['messages']), 2)
@@ -116,7 +123,7 @@ class DatasetTests(unittest.TestCase):
             self.assertNotIn('expected_assessment', json.dumps(context))
         again, calls = self.run_local()
         self.assertEqual(calls, [])
-        self.assertEqual(again['assessment_matches'], 2)
+        self.assertEqual(again['assessment_matches'], self.n)
         self.assertFalse((self.output / '.lock').exists())
 
     def test_changed_evidence_or_prompt_requires_another_run(self):
@@ -132,8 +139,8 @@ class DatasetTests(unittest.TestCase):
 
     def test_bad_output_is_failure_and_is_not_retried(self):
         summary, calls = self.run_local(response={})
-        self.assertEqual(summary['counts']['failed'], 2)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(summary['counts']['failed'], self.n)
+        self.assertEqual(len(calls), self.n)
         _, calls = self.run_local()
         self.assertEqual(calls, [])
         row = harness.read_json(evaluation.result_path(self.output, 'missing-footage'))
@@ -148,7 +155,7 @@ class DatasetTests(unittest.TestCase):
             row['scores'] = {key: 2 for key in evaluation.RUBRIC}
             row['unsupported_claims'] = 0
         summary = evaluation.summarize_ratings(sheet, self.output)
-        self.assertEqual(summary['rated_cases'], 2)
+        self.assertEqual(summary['rated_cases'], self.n)
         self.assertEqual(summary['mean_scores']['factual_support'], 2)
         sheet['ratings'][0]['scores']['uncertainty'] = True
         with self.assertRaises(ValueError):
@@ -188,7 +195,7 @@ class DatasetTests(unittest.TestCase):
         self.approve()
         summary, calls = self.run_local()
         self.assertEqual(calls, [])
-        self.assertEqual(summary['counts']['ok'], 2)
+        self.assertEqual(summary['counts']['ok'], self.n)
 
     def test_paid_runs_require_budget_and_exact_human_privacy_hash(self):
         with mock.patch.object(cloud, 'complete') as call:
@@ -221,18 +228,18 @@ class DatasetTests(unittest.TestCase):
         with mock.patch.object(cloud, 'load_key', return_value='dummy-key'), \
                 mock.patch.object(cloud, 'complete', side_effect=simulated) as call, redirect_stdout(io.StringIO()):
             summary = evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
-            self.assertEqual(call.call_count, 2)
-            self.assertEqual(summary['counts']['ok'], 2)
-            self.assertAlmostEqual(summary['estimated_cost_usd'], 2 * 0.00562)
+            self.assertEqual(call.call_count, self.n)
+            self.assertEqual(summary['counts']['ok'], self.n)
+            self.assertAlmostEqual(summary['estimated_cost_usd'], self.n * 0.00562)
             self.assertLess(summary['reserved_usd'], 1)
             evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
-            self.assertEqual(call.call_count, 2)
+            self.assertEqual(call.call_count, self.n)
 
     def test_tiny_budget_sends_nothing(self):
         self.approve()
         with mock.patch.object(cloud, 'load_key') as load, mock.patch.object(cloud, 'complete') as call:
             summary = evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=0.0001)
-            self.assertEqual(summary['counts']['not_run'], 2)
+            self.assertEqual(summary['counts']['not_run'], self.n)
             self.assertEqual(summary['reserved_usd'], 0)
             call.assert_not_called()
             load.assert_not_called()
@@ -248,7 +255,7 @@ class DatasetTests(unittest.TestCase):
             evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
         with mock.patch.object(cloud, 'load_key') as load, mock.patch.object(cloud, 'complete') as call:
             summary = evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
-            self.assertEqual(summary['counts']['ok'], 2)
+            self.assertEqual(summary['counts']['ok'], self.n)
             load.assert_not_called()
             call.assert_not_called()
 
@@ -273,7 +280,7 @@ class DatasetTests(unittest.TestCase):
         self.run_local()
         (self.output / 'report.json.tmp').write_text('partial')
         summary, calls = self.run_local()
-        self.assertEqual((summary['counts']['ok'], len(calls)), (2, 0))
+        self.assertEqual((summary['counts']['ok'], len(calls)), (self.n, 0))
         self.assertFalse((self.output / 'report.json.tmp').exists())
 
     def test_pending_request_is_never_retransmitted_on_resume(self):
@@ -320,16 +327,16 @@ class DatasetTests(unittest.TestCase):
             endpoint = f'http://127.0.0.1:{server.server_port}/v1'
             with redirect_stdout(io.StringIO()):
                 summary = evaluation.run_dataset(self.dataset, self.output, 'local', 'stub', endpoint)
-            self.assertEqual(summary['counts']['ok'], 2)
-            self.assertEqual(len(requests), 2)
+            self.assertEqual(summary['counts']['ok'], self.n)
+            self.assertEqual(len(requests), self.n)
             _, cases = evaluation.load_dataset(self.dataset)
             for case in cases:
                 for frame in case['packet']['frames']:
                     (self.dataset.parent / frame['image_file']).write_bytes(PNG)
             with redirect_stdout(io.StringIO()):
                 summary = evaluation.run_dataset(self.dataset, self.root / 'vision-run', 'local', 'stub', endpoint, task='observe')
-            self.assertEqual(summary['counts']['ok'], 2)
-            self.assertEqual(len(requests), 4)
+            self.assertEqual(summary['counts']['ok'], self.n)
+            self.assertEqual(len(requests), self.n * 2)
             self.assertTrue(any(c['type'] == 'image_url' for c in requests[-1]['messages'][1]['content']))
         finally:
             server.shutdown()

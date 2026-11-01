@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-walk",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Zoe",
+  "start_ms": 400000,
+  "decision_ms": 430000,
+  "sync_verified": true,
+  "focus": "Deaths and positioning; fabricated walk between two frames",
+  "frames": [
+    {"id": "frame-400000", "game_ms": 400000, "image_file": "frame-400000.png"},
+    {"id": "frame-430000", "game_ms": 430000, "image_file": "frame-430000.png"}
+  ],
+  "events": [
+    {
+      "id": "event-420000-0",
+      "game_ms": 420000,
+      "source": "riot_timeline",
+      "visibility": "global_event_not_player_view",
+      "side": "enemy",
+      "killer": "Zoe",
+      "victim": "Ahri",
+      "assists": [],
+      "me": null
+    }
+  ],
+  "knowledge": []
+}
