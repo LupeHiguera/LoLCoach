@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-dev-opening",
+  "observations": [
+    {
+      "id": "obs-dev-lane",
+      "game_ms": 75000,
+      "statement": "Fabricated model note: both mid champions are visible on their own side of the lane. Minions are between them.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-75000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture, not a recording.",
+    "Exact health and cooldowns are unknown."
+  ]
+}

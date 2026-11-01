@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-same-game-reset",
+  "observations": [
+    {
+      "id": "obs-model-gap",
+      "game_ms": 415000,
+      "statement": "Fabricated fixture: between the two cited frames the mid champion is in the lane, short of her turret. No ability animation is visible.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-400000", "frame-415000"]
+    },
+    {
+      "id": "obs-human-retreat",
+      "game_ms": 430000,
+      "statement": "Fabricated and marked human-checked for this fixture only: the mid champion is beside her turret, and the lane opponent is not visible in the cited frame.",
+      "source": "human",
+      "verification": "human_verified",
+      "evidence_refs": ["frame-430000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture, not a recording.",
+    "Cooldowns and enemies outside the frame are unknown."
+  ]
+}

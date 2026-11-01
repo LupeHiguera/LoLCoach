@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-action-edges",
+  "start_ms": 10000,
+  "decision_ms": 40000,
+  "events": [
+    {"label": "charm_cast", "actor": "self", "game_ms": 10000},
+    {"label": "charm_hit", "actor": "enemy-mid", "game_ms": 10400},
+    {"label": "move_toward_turret", "actor": "self", "game_ms": 20000},
+    {"label": "auto_attack", "actor": "self", "game_ms": 25000},
+    {"label": "auto_attack", "actor": "self", "game_ms": 25200},
+    {"label": "recall_start", "actor": "self", "game_ms": 40000}
+  ]
+}

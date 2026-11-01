@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-dev-opening",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Orianna",
+  "start_ms": 60000,
+  "decision_ms": 75000,
+  "sync_verified": true,
+  "focus": "Fabricated early lane-state check.",
+  "frames": [
+    {
+      "id": "frame-60000",
+      "game_ms": 60000,
+      "image_file": "frame-60000.png"
+    },
+    {
+      "id": "frame-75000",
+      "game_ms": 75000,
+      "image_file": "frame-75000.png"
+    }
+  ],
+  "events": [],
+  "knowledge": []
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-event-without-view",
+  "observations": [],
+  "unknowns": [
+    "Synthetic fixture: no visual observation was written.",
+    "The timeline row is a global event and does not show what was on screen.",
+    "Game-clock alignment for this moment is not verified."
+  ]
+}

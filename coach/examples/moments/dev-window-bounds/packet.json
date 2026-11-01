@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-window-bounds",
+  "patch": null,
+  "champion": null,
+  "opponent": null,
+  "start_ms": 120000,
+  "decision_ms": 180000,
+  "sync_verified": false,
+  "focus": "Fabricated bounds check with an empty champion field and a 60 second window.",
+  "frames": [
+    {
+      "id": "frame-120000",
+      "game_ms": 120000,
+      "image_file": "frame-120000.png"
+    },
+    {
+      "id": "frame-180000",
+      "game_ms": 180000,
+      "image_file": "frame-180000.png"
+    }
+  ],
+  "events": [
+    {
+      "id": "event-150000-0",
+      "game_ms": 150000,
+      "source": "riot_timeline",
+      "visibility": "global_event_not_player_view",
+      "side": null,
+      "killer": null,
+      "victim": null,
+      "assists": [],
+      "me": null
+    }
+  ],
+  "knowledge": [
+    {
+      "id": "rule-general-bounds",
+      "patch": "general",
+      "text": "Fabricated principle: with no patch on the packet, only a general snippet is attached. It does not identify a champion or a player."
+    }
+  ]
+}

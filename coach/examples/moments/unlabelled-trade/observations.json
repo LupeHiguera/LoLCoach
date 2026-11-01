@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-unlabelled-trade",
+  "observations": [
+    {
+      "id": "obs-unverified-trade",
+      "game_ms": 120000,
+      "statement": "Fabricated model note: both champions are visible near the center of the lane and the health bars look reduced. Nobody has checked this against footage.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-120000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture, not a recording.",
+    "Game-clock alignment for this moment is not verified.",
+    "Ability cooldowns are unknown."
+  ]
+}

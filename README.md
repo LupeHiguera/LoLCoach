@@ -53,70 +53,133 @@ Verify with `python -m unittest -v`.
 CLI clips, model evaluation and the recorder share storage with the review app
 through `review_data.py`, so they work without starting the web server.
 `league.db` is read-only; notes and recording links belong in ignored `reviews.db`.
-
 Python 3.10+ is sufficient for the current pipelines; PyTorch is not required.
 On this PC Python is installed under `%LOCALAPPDATA%/Programs/Python/Python313`.
-For a new environment, run these commands in PowerShell from the repository root:
 
-```powershell
-& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\scripts\install-ffmpeg.ps1
-. .\scripts\enter-local.ps1
-python -m unittest -v
-```
+Run the steps below in order from the repository root in PowerShell. This is the
+path when each command succeeds. It checks that the programs start and that
+synthetic files decode. It does not measure coaching quality, and it does not
+show that a real game window or the game clock lined up. Tools, footage,
+databases and `.env` stay under ignored paths (`data/`, `.env`, `*.db`).
+Do not commit them.
 
-For an existing setup, only dot-source `enter-local.ps1` in each new terminal.
-It puts the virtual environment, project-local FFmpeg and existing LM Studio CLI
-on that terminal's PATH. It does not change the system PATH or Windows security
-settings. The FFmpeg installer uses the distributor linked by ffmpeg.org and
-verifies its published SHA-256 checksum. Tools and footage live under ignored `data/`.
-Symlink escape tests report a skip when the Windows account cannot create symlinks;
-other file, image-size, privacy and timing checks still run.
+For an existing checkout, skip to step 4 in each new terminal.
 
-OBS must be closed for the one-time WebSocket setup. This preserves its existing
-password (or generates one), enables authentication on port 4455, writes the same
-password to ignored `.env`, and saves previous settings under `data/setup-backups/`:
+1. Create the virtual environment.
 
-```powershell
-python scripts/configure_obs.py --config-root "$env:APPDATA\obs-studio"
-```
+   ```powershell
+   & "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m venv .venv
+   ```
 
-Start OBS, then run:
+2. Install Python dependencies into that environment.
 
-```powershell
-python -m coach.capture_setup --test
-python recorder.py --check-obs
-```
+   ```powershell
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
 
-Capture setup creates a separate **LoLCoach** profile and **LoLCoach game** scene,
-using Window Capture with Windows Graphics Capture for `League of Legends.exe`.
-It retains the current video dimensions/FPS, uses NVENC H.264 in MKV, and saves to
-`data/recordings/`. The test records generated colours with audio temporarily muted;
-it restores the game scene and previous mute states. Other profiles/scenes remain
-available. This checks OBS start/stop and video decoding, not actual gameplay capture.
+3. Install FFmpeg. The script uses the Windows build linked from ffmpeg.org
+   and checks the published SHA-256 before copying `ffmpeg` and `ffprobe` under
+   ignored `data/tools/`.
 
-The 2026-10-01 Windows check produced a valid 3840x2160, 60 fps H.264 recording and
-passed local text and vision JSON transport. Inputs were synthetic; model quality,
-real game-window visibility and game-clock alignment remain unverified. Local runs
-are under `data/evals/windows-smoke-1`, `windows-vision-smoke-3` and `synthetic-capture`.
-The 8B text model matched one of two fabricated assessment labels; that is not a
-coaching benchmark. The small vision model initially reused a frame ID as an
-observation ID, which validation rejected; the prompt now distinguishes the IDs.
+   ```powershell
+   .\scripts\install-ffmpeg.ps1
+   ```
 
-For model tests, keep LM Studio's API server on loopback and load an existing model:
+4. Put this terminal on the project tools. Repeat this in every new terminal.
+   It adds the virtual environment, project-local FFmpeg, and an existing
+   LM Studio CLI to that terminal's PATH. It does not change the system PATH
+   or Windows security settings.
 
-```powershell
-lms server start --port 1234 --bind 127.0.0.1
-lms load meta-llama-3.1-8b-instruct@q4_k_m --identifier lolcoach-smoke --context-length 16384 --gpu max
-python -m coach.eval run --dataset coach/examples/eval_dataset.json --model lolcoach-smoke --limit 2 --output data/evals/local-smoke-new
-```
+   ```powershell
+   . .\scripts\enter-local.ps1
+   ```
 
-For observations use a vision-capable model with its projector, e.g. the already
-installed `mistralai/ministral-3-3b`. These small models check plumbing; choose and
-benchmark gameplay models only after collecting labelled footage. Runtime GPU
-allocation is automatic for this smoke test; per-GPU layer placement and CPU offload
-have not been measured. Record those settings for actual comparisons.
+5. Run the unit tests.
+
+   ```powershell
+   python -m unittest -v
+   ```
+
+   Symlink escape tests report a skip when the Windows account cannot create
+   symlinks. The other file, image-size, privacy and timing checks still run.
+   The FFmpeg integration test runs when `ffmpeg` is on PATH after steps 3 and 4;
+   otherwise that one test skips.
+
+6. Configure OBS WebSocket once, with OBS closed. The script keeps an existing
+   password or generates one, enables authentication on port 4455, writes that
+   password to ignored `.env` as `OBS_WS_PASSWORD`, and saves the previous
+   settings under `data/setup-backups/`.
+
+   ```powershell
+   python scripts/configure_obs.py --config-root "$env:APPDATA\obs-studio"
+   ```
+
+7. Start OBS, then run the capture test. This creates a separate **LoLCoach**
+   profile and **LoLCoach game** scene, using Window Capture with Windows
+   Graphics Capture for `League of Legends.exe`. It keeps the current video
+   dimensions and FPS, uses NVENC H.264 in MKV, and saves to `data/recordings/`.
+   `--test` records 4 seconds of generated colour with audio temporarily muted,
+   then restores the game scene and the previous mute states. Other profiles
+   and scenes stay available. The test checks OBS start/stop and that the file
+   decodes. It does not capture the game.
+
+   ```powershell
+   python -m coach.capture_setup --test
+   ```
+
+8. Check that the recorder can authenticate to that OBS.
+
+   ```powershell
+   python recorder.py --check-obs
+   ```
+
+9. Optional: local model smoke. Skip this until you want to test a model you
+   already downloaded. Keep LM Studio's API server on loopback. `--limit 2`
+   runs only the first two test-split fixtures in `coach/examples/eval_dataset.json`
+   (the original pair). The file has more synthetic cases;
+   `python -m coach.eval validate --dataset coach/examples/eval_dataset.json`
+   checks all of them and does not call a model. A passing smoke means the server
+   returned contract-shaped JSON. It is not a coaching score.
+
+   ```powershell
+   lms server start --port 1234 --bind 127.0.0.1
+   lms load meta-llama-3.1-8b-instruct@q4_k_m --identifier lolcoach-smoke --context-length 16384 --gpu max
+   python -m coach.eval run --dataset coach/examples/eval_dataset.json --model lolcoach-smoke --limit 2 --output data/evals/local-smoke-new
+   ```
+
+   For observations, use a vision-capable model and its projector, for example
+   the already installed `mistralai/ministral-3-3b`, and add `--task observe`.
+   These small models check plumbing. Choose and benchmark gameplay models only
+   after collecting labelled footage. Runtime GPU allocation is automatic for
+   this smoke test; per-GPU layer placement and CPU offload have not been
+   measured. Record those settings for an actual comparison.
+
+10. Fetch, link, and clips, when you record real games. This is an outline, not
+    a completed Windows result. Use Practice Tool to see whether the **LoLCoach
+    game** scene shows the full HUD. Use a normal match for Riot linking and
+    death clips. The offset check and clip commands are under "First video
+    milestone" below. Sync stays unverified until you compare the recording
+    with the game clock yourself.
+
+    - Arm capture and leave the terminal running: `python recorder.py --arm`.
+      The recorder is off until this command. It polls only the local official
+      game-clock endpoint and shows nothing in game.
+    - After the match, fetch with a current key. Development keys expire every
+      24 hours: `python fetch_matches.py --count 20`. Then
+      `python recorder.py --link`.
+    - Dry-run, then extract: `python -m coach.clips --match MATCH_ID --dry-run`,
+      then `python -m coach.clips --match MATCH_ID`. `MATCH_ID` is your imported
+      match id. Output stays in ignored `data/clips/`. The manifest marks sync
+      unverified.
+
+The 2026-10-01 Windows check produced a valid 3840x2160, 60 fps H.264 recording
+and passed local text and vision JSON transport. Inputs were synthetic; model
+quality, real game-window visibility and game-clock alignment remain unverified.
+Those local runs are under `data/evals/windows-smoke-1`, `windows-vision-smoke-3`
+and `synthetic-capture`. The 8B text model matched one of two fabricated
+assessment labels; that is not a coaching benchmark. The small vision model
+initially reused a frame ID as an observation ID, which validation rejected; the
+prompt now distinguishes the IDs. This document does not add a newer Windows result.
 
 ## First video milestone: death clips
 
@@ -126,7 +189,7 @@ per recorded death, with up to 60 seconds before and 10 seconds after it, plus a
 The metadata excludes player names, PUUIDs and raw API JSON. Video itself is not
 anonymised; keep the output local. Clip extraction does not run a model.
 
-On the Windows gaming PC:
+Recording and clip checks, after the Windows setup above:
 
 1. First use Practice Tool to verify the **LoLCoach game** scene captures the game
    window and the full HUD. Practice Tool may not appear in Match-V5; use a normal
@@ -151,8 +214,9 @@ On the Windows gaming PC:
    the correct offset is `offset_s + (expected − shown)` in seconds, e.g. expecting
    5:00 and seeing 4:58 gives `offset_s + 2`. Rerun with `--video` and that `--offset`
    into a new `--output`.
-6. Install [FFmpeg](https://ffmpeg.org/download.html) with both `ffmpeg` and
-   `ffprobe` on PATH. These are external executables, not Python dependencies.
+6. `ffmpeg` and `ffprobe` must be on PATH. The Windows setup above installs a
+   project-local copy; otherwise install both from [FFmpeg](https://ffmpeg.org/download.html).
+   They are external executables, not Python dependencies.
    Extract clips using the imported match ID:
 
 ```sh
@@ -273,11 +337,13 @@ Mac or Windows. No model download or home-PC connection is needed to test the pi
 python -m unittest -v test_eval
 python -m coach.eval validate --dataset coach/examples/eval_dataset.json
 python -m coach.event_eval --gold coach/examples/events_gold.json --predictions coach/examples/events_predictions.json
+python -m coach.event_eval --gold coach/examples/events_gold_edges.json --predictions coach/examples/events_predictions_edges.json
 ```
 
-The examples are **fabricated fixtures**, with no gameplay images. The tests exercise
-real localhost image/text transport using tiny synthetic PNGs and simulate OpenAI
-responses. Passing them verifies plumbing, not model coaching quality. No paid
+The examples are **fabricated fixtures**, with no gameplay images. `coach/examples/DATASET.md`
+lists the cases and how to add real labelled moments under ignored `data/evals/`
+without committing footage. The tests exercise real localhost image/text transport
+using tiny synthetic PNGs and simulate OpenAI responses. Passing them verifies plumbing, not model coaching quality. No paid
 requests are needed. The FFmpeg integration test in the full suite skips when FFmpeg
 is unavailable.
 

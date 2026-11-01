@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-checked-retreat",
+  "observations": [
+    {
+      "id": "obs-checked-path",
+      "game_ms": 520000,
+      "statement": "Fabricated and marked human-checked for this fixture only: in the cited frames the mid champion is moving toward her turret, and the turret is visible.",
+      "source": "human",
+      "verification": "human_verified",
+      "evidence_refs": ["frame-510000", "frame-520000"]
+    },
+    {
+      "id": "obs-unverified-health",
+      "game_ms": 530000,
+      "statement": "Fabricated model note: the health bar looks low in the last frame. A person has not checked this statement.",
+      "source": "local_vision",
+      "verification": "model_observed",
+      "evidence_refs": ["frame-530000"]
+    }
+  ],
+  "unknowns": [
+    "Synthetic fixture, not a recording.",
+    "Enemy cooldowns and units outside the frames are unknown."
+  ]
+}
