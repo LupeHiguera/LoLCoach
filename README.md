@@ -48,6 +48,61 @@ Review prompts are deliberately limited:
 
 Verify with `python -m unittest -v`.
 
+## Windows happy path
+
+One normal match, from arming OBS through a local eval. Do this in PowerShell
+from the repo root after the setup below. Footage, frames and audio stay on
+this PC. Cloud eval, if you later opt in, is sanitised text only.
+
+1. **Arm.** Start OBS, then leave a terminal running for the whole game:
+
+   ```powershell
+   python recorder.py --arm
+   ```
+
+   The review app's Auto-record checkbox does the same thing. Nothing is drawn
+   on the game. Ctrl+C stops a capture this recorder started.
+
+2. **Record.** Play a normal match. Practice Tool is for checking the scene;
+   it does not link through Match-V5. Leave the terminal up until the game ends
+   and the recorder prints that it saved a file.
+
+3. **Fetch.** With a valid Riot key in `.env`:
+
+   ```powershell
+   python fetch_matches.py --count 20
+   ```
+
+4. **Link.** Attach the saved recording to that match, then open it in the app:
+
+   ```powershell
+   python recorder.py --link
+   python review_app.py
+   ```
+
+   The offset means `video seconds = game seconds + offset`. Confirm it with the
+   clock check in the death-clip section before treating a clip as synced.
+
+5. **Clips.** Use the imported match id:
+
+   ```powershell
+   python -m coach.clips --match NA1_123456789 --dry-run
+   python -m coach.clips --match NA1_123456789
+   ```
+
+6. **Eval.** Prepare one decision from a clip, then validate and run the local
+   model only. The example dataset is fabricated and already validates offline:
+
+   ```powershell
+   python -m coach.eval validate --dataset coach/examples/eval_dataset.json
+   python -m coach.harness prepare --manifest data/clips/NA1_123456789/manifest.json --moment death-300000 --at-ms 295000 --output data/moments/decision-1
+   python -m coach.harness observe --packet data/moments/decision-1/packet.json --model LOCAL_VISION_MODEL --output data/moments/decision-1/observations.json
+   python -m coach.harness review --packet data/moments/decision-1/packet.json --observations data/moments/decision-1/observations.json --model LOCAL_COACH_MODEL --output data/moments/decision-1/review.json
+   ```
+
+   Point a real dataset under `data/evals/` at those bundles. Do not send the
+   frames to a cloud model.
+
 ## Windows pipeline setup
 
 CLI clips, model evaluation and the recorder share storage with the review app
@@ -308,7 +363,11 @@ python -m coach.eval validate --dataset coach/examples/eval_dataset.json
 python -m coach.event_eval --gold coach/examples/events_gold.json --predictions coach/examples/events_predictions.json
 ```
 
-The examples are **fabricated fixtures**, with no gameplay images. The tests exercise
+The examples are **fabricated fixtures**, with no gameplay images. The test split
+has five cases: missing footage, a visible position, Zoe with nothing readable,
+a human-checked Charm line, and a walk cited across two frames. One dev-split
+control stays out of the default run. Observation IDs start with `obs-` and are
+rejected when they copy a frame ID. The tests exercise
 real localhost image/text transport using tiny synthetic PNGs and simulate OpenAI
 responses. Passing them verifies plumbing, not model coaching quality. No paid
 requests are needed. The FFmpeg integration test in the full suite skips when FFmpeg
