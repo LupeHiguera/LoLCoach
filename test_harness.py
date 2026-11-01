@@ -134,6 +134,12 @@ class ContractTests(unittest.TestCase):
         o['observations'][0]['id'] = frame_id
         with self.assertRaisesRegex(ValueError, 'identifier'):
             contracts.validate_observations(o, p, model_output=True)
+        o['observations'][0]['id'] = frame_id.upper()
+        with self.assertRaisesRegex(ValueError, 'identifier'):
+            contracts.validate_observations(o, p, model_output=True)
+        o['observations'][0]['id'] = 'OBS-1'
+        with self.assertRaisesRegex(ValueError, 'identifier'):
+            contracts.validate_observations(o, p, model_output=True)
         o = observations(p)
         o['observations'][0]['id'] = 'obs-' + frame_id
         contracts.validate_observations(o, p, model_output=True)

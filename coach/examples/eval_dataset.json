@@ -49,6 +49,33 @@
       "cloud_approved_sha256": null
     },
     {
+      "id": "recall-channel",
+      "group": "synthetic-game-6",
+      "split": "test",
+      "packet": "recall_packet.json",
+      "observations": "recall_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "stable-lane-control",
+      "group": "synthetic-game-7",
+      "split": "test",
+      "packet": "control_packet.json",
+      "observations": "control_observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "bubble-in-flight",
+      "group": "synthetic-game-8",
+      "split": "test",
+      "packet": "bubble_packet.json",
+      "observations": "bubble_observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
       "id": "dev-control",
       "group": "synthetic-game-dev",
       "split": "dev",

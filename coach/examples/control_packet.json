@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "synthetic-control",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Orianna",
+  "start_ms": 80000,
+  "decision_ms": 110000,
+  "sync_verified": true,
+  "focus": "Non-death control; fabricated fixture with frames but no visual statement",
+  "frames": [
+    {"id": "frame-80000", "game_ms": 80000, "image_file": "frame-80000.png"},
+    {"id": "frame-110000", "game_ms": 110000, "image_file": "frame-110000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

@@ -98,6 +98,14 @@ class DatasetTests(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 evaluation.load_dataset(self.dataset)
 
+    def test_dataset_rejects_a_frame_id_used_as_an_observation(self):
+        path = self.dataset.parent / 'position_observations.json'
+        data = harness.read_json(path)
+        data['observations'][0]['id'] = data['observations'][0]['evidence_refs'][0]
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, 'identifier'):
+            evaluation.load_dataset(self.dataset)
+
     def test_dataset_paths_cannot_escape_through_symlinks(self):
         (self.root / 'secret.json').write_text('{}')
         try:
@@ -368,9 +376,11 @@ class CloudTests(unittest.TestCase):
     def test_footage_is_refused_before_any_request(self):
         packet = harness.read_json(EXAMPLES / 'packet.json')
         observations = harness.read_json(EXAMPLES / 'observations.json')
-        edited = dict(observations, unknowns=['See data/recordings/game.mkv'])
-        with self.assertRaisesRegex(ValueError, 'footage'):
-            cloud.checked_text(packet, edited)
+        for value in ('See data/recordings/game.mkv', 'voice-note.wav', 'data:audio/wav;base64,abc',
+                      'data:application/octet-stream;base64,abc'):
+            edited = dict(observations, unknowns=[value])
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'footage'):
+                cloud.checked_text(packet, edited)
         with mock.patch.object(cloud, 'build_opener') as builder:
             with self.assertRaisesRegex(ValueError, 'footage'):
                 cloud.complete({'input': [{'type': 'input_image', 'image_url': 'data:image/png;base64,abc'}]}, 'k')
