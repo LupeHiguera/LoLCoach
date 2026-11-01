@@ -88,6 +88,12 @@ class ClipPlanTests(unittest.TestCase):
         leaked['killer'] = 'Player#NA1'
         with self.assertRaisesRegex(ValueError, 'Riot ID'):
             clips.plan_clips(MATCH, [leaked], 0, 600)
+        for killer in ('123e4567-e89b-12d3-a456-426614174000',
+                       '{"puuid":"hidden"}', r'C:\Users\me\clip.mkv'):
+            with self.subTest(killer=killer), self.assertRaisesRegex(ValueError, 'Riot ID, PUUID, or local path'):
+                clips.plan_clips(MATCH, [dict(death(300000), killer=killer)], 0, 600)
+        with self.assertRaisesRegex(ValueError, 'Riot ID'):
+            clips.plan_clips(MATCH, [dict(death(300000), assists=['Lee Sin', 'Name#EUW'])], 0, 600)
 
 
 class SyncTests(unittest.TestCase):
@@ -126,11 +132,36 @@ class SyncTests(unittest.TestCase):
     def test_sync_only_reads_no_database(self):
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            clips.main(['--sync-only', '--offset', '-1.6', '--checkpoint', '60=1:01',
+            clips.main(['--sync-only', '--json', '--offset', '-1.6', '--checkpoint', '60=1:01',
                         '--checkpoint', '120=2:01'])
         report = json.loads(stdout.getvalue())
         self.assertTrue(report['acceptable'])
         self.assertNotIn('match_id', report)
+        self.assertIn('Keep offset -1.6', '\n'.join(report['lines']))
+
+    def test_sync_only_says_what_to_do_and_rejects_a_bad_clock(self):
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            clips.main(['--sync-only', '--offset', '-1.6', '--checkpoint', '60=1:01'])
+        text = stdout.getvalue()
+        self.assertIn('does not open the video', text)
+        self.assertIn('one reading cannot show drift', text)
+        self.assertIn('Keep offset -1.6 s', text)
+        self.assertNotIn('{', text)
+        correction = clips.measure_sync(0, [(300, clips.parse_clock('4:58'))])
+        self.assertIn('Suggested offset is 2 s', '\n'.join(correction['lines']))
+        short = clips.measure_sync(0, [(0, 0), (30, 30)])
+        self.assertFalse(short['acceptable'])
+        self.assertIn('under 60', ' '.join(short['reasons']))
+        drifting = clips.measure_sync(0, [(0, 0), (60, 60.5)])
+        self.assertFalse(drifting['acceptable'])
+        self.assertTrue(any('drift' in reason for reason in drifting['reasons']))
+        split = clips.measure_sync(0, [(0, 0), (60, 62)])
+        self.assertIsNone(split['suggested_offset_s'])
+        self.assertIn('do not share one whole-second correction', '\n'.join(split['lines']))
+        for checkpoint in ('nope', '1:60=0', '60=1:01=extra'):
+            with self.subTest(checkpoint=checkpoint), self.assertRaises(SystemExit):
+                clips.main(['--sync-only', '--offset', '0', '--checkpoint', checkpoint])
 
 
 class EvidenceTests(unittest.TestCase):
@@ -203,6 +234,13 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(db.read_bytes(), original)
             self.assertFalse(output.exists())
             self.assertEqual(json.loads(stdout.getvalue())['sync']['source'], 'manual')
+
+    def test_extract_refuses_a_stuffed_identifier_before_ffmpeg(self):
+        manifest = clips.plan_clips(MATCH, [death(300000)], 0, 600)
+        manifest['match']['raw_json'] = '{"puuid":"hidden"}'
+        with mock.patch.object(clips, 'run_media') as run, self.assertRaisesRegex(ValueError, 'identifier'):
+            clips.extract_clips(manifest, Path('source.mp4'), Path('unused'))
+        run.assert_not_called()
 
     def test_missing_tools_have_actionable_error(self):
         with mock.patch.object(clips.subprocess, 'run', side_effect=FileNotFoundError):

@@ -33,10 +33,13 @@ PUBLIC_MATCH = ('match_id', 'patch', 'my_champion', 'opp_champion', 'duration_s'
 PUBLIC_EVENT = ('time', 'side', 'killer', 'victim', 'assists', 'me', 'x', 'y')
 _FORBIDDEN_KEYS = {
     'puuid', 'summonername', 'summonerid', 'riotid', 'riotidgamename',
-    'riotidtagline', 'gamename', 'tagline', 'rawjson',
+    'riotidtagline', 'gamename', 'tagline', 'rawjson', 'accountid', 'playerid',
 }
 _RIOT_ID = re.compile(r'\S+#\w+')
 _LONG_TOKEN = re.compile(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{60,}(?![A-Za-z0-9_-])')
+_UUID = re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b')
+_IDENTIFIER_TEXT = re.compile(r'(?i)puuid|summonername|raw_?json|riotid')
+_LOCAL_PATH = re.compile(r'(?:[A-Za-z]:\\|/(?:Users|home|private)/)')
 
 
 def match_evidence(conn, match_id):
@@ -85,8 +88,10 @@ def assert_no_player_identifiers(value):
         elif isinstance(node, list):
             for item in node:
                 walk(item)
-        elif isinstance(node, str) and (_RIOT_ID.search(node) or _LONG_TOKEN.search(node)):
-            raise ValueError('Manifest text looks like a Riot ID or PUUID')
+        elif isinstance(node, str) and (_RIOT_ID.search(node) or _LONG_TOKEN.search(node)
+                                         or _UUID.search(node) or _IDENTIFIER_TEXT.search(node)
+                                         or _LOCAL_PATH.search(node)):
+            raise ValueError('Manifest text looks like a Riot ID, PUUID, or local path')
     walk(value)
 
 
@@ -133,6 +138,49 @@ def parse_checkpoint(text):
     if not separator or not video.strip() or not clock.strip():
         raise ValueError('Checkpoint must look like 60=1:01')
     return parse_clock(video), parse_clock(clock)
+
+
+def format_clock(seconds):
+    """M:SS from seconds. A fractional second is kept, because the offset can have one."""
+    minutes = int(math.floor(seconds) // 60)
+    remainder = seconds - minutes * 60
+    if abs(remainder - round(remainder)) < 0.05:
+        return f'{minutes}:{int(round(remainder)):02d}'
+    return f'{minutes}:{remainder:04.1f}'
+
+
+def sync_lines(report):
+    """Plain next step for a clock check. This does not watch the video or set verified."""
+    lines = [
+        f"Offset {report['offset_s']:g} s. {report['mapping']}.",
+        'This check uses clocks you typed. It does not open the video, a database, or the network.',
+    ]
+    for row in report['checkpoints']:
+        agree = 'displayed seconds agree' if row['whole_second_match'] else (
+            f"displayed seconds differ by {row['displayed_error_s']:+d} s")
+        lines.append(
+            f"Video {format_clock(row['video_s'])}: clock shows {format_clock(row['shown_game_s'])}, "
+            f"offset predicts {format_clock(row['expected_game_s'])}. {agree} "
+            f"(error {row['error_s']:+g} s).")
+    if report['drift_s_per_min'] is None:
+        lines.append('Drift was not estimated. Two readings at least 60 s apart are required.')
+    else:
+        lines.append(f"Drift is {report['drift_s_per_min']:g} s per minute of video (limit 0.2).")
+    if report['reasons']:
+        lines.append('Not accepted: ' + '; '.join(report['reasons']) + '.')
+    else:
+        lines.append('The readings meet the check. verified stays false until you pass --accept-sync on an extraction.')
+    suggested = report['suggested_offset_s']
+    if suggested is None:
+        lines.append('These readings do not share one whole-second correction. Do not change the offset yet.')
+    elif suggested == report['offset_s']:
+        lines.append(f"Keep offset {report['offset_s']:g} s. A fraction under 1 s is not a correction.")
+    else:
+        lines.append(
+            f"Suggested offset is {suggested:g} s. Rerun with --offset {suggested:g} "
+            'and the same checkpoints, into a new --output. Do not "fix" a fraction of a second.')
+    lines.append('--sync-only changes nothing on disk.')
+    return lines
 
 
 def _slope(xs, ys):
@@ -192,21 +240,39 @@ def measure_sync(offset_s, checkpoints, tolerance_s=SYNC_TOLERANCE_S):
         slope = _slope([row['video_s'] for row in ordered], [row['error_s'] for row in ordered])
         drift = None if slope is None else round(slope * 60, 3)
     same_display = len(set(displayed)) == 1
-    suggested = round(offset_s - displayed[0], 3) if same_display else None
+    if not same_display:
+        suggested = None
+    elif displayed[0] == 0:
+        suggested = offset_s
+    else:
+        suggested = round(offset_s - displayed[0], 3)
     within = all(abs(error) <= tolerance_s for error in errors)
     whole = all(row['whole_second_match'] for row in rows)
     drift_ok = drift is not None and abs(drift) <= SYNC_MAX_DRIFT_S_PER_MIN
-    return dict(
+    reasons = []
+    if len(rows) < 2:
+        reasons.append('one reading cannot show drift')
+    elif span < SYNC_MIN_SPAN_S:
+        reasons.append(f'readings span {span:g} s, under 60 s')
+    if not within:
+        reasons.append(f'a reading is more than {tolerance_s:g} s from the offset')
+    if not whole:
+        reasons.append('a displayed second does not match the offset')
+    if len(rows) >= 2 and span >= SYNC_MIN_SPAN_S and not drift_ok:
+        reasons.append('drift is above 0.2 s per minute')
+    report = dict(
         offset_s=offset_s, mapping='video_s = game_s + offset_s', tolerance_s=tolerance_s,
         checkpoints=rows, n=len(rows),
         median_error_s=round(statistics_median(errors), 3),
         max_abs_error_s=round(max(abs(error) for error in errors), 3),
         suggested_offset_s=suggested, drift_s_per_min=drift, span_s=round(span, 3),
-        whole_seconds_agree=whole, within_tolerance=within,
-        acceptable=len(rows) >= 2 and span >= SYNC_MIN_SPAN_S and within and whole and drift_ok,
+        whole_seconds_agree=whole, within_tolerance=within, reasons=reasons,
+        acceptable=not reasons,
         note=('Compared with clocks you read. Footage was not inspected. '
               'A fraction under one second is not a correction. '
               'One checkpoint cannot show drift. verified is not set here.'))
+    report['lines'] = sync_lines(report)
+    return report
 
 
 def statistics_median(values):
@@ -350,7 +416,9 @@ def main(argv=None):
     parser.add_argument('--ffprobe', default='ffprobe')
     parser.add_argument('--dry-run', action='store_true', help='Print the manifest; do not extract or write files')
     parser.add_argument('--sync-only', action='store_true',
-                        help='Compare --offset with --checkpoint readings; no database, video, or network')
+                        help='Print what to do with --offset given --checkpoint readings. No database, video, or network')
+    parser.add_argument('--json', action='store_true',
+                        help='With --sync-only, print the measurement JSON instead of the plain summary')
     parser.add_argument('--checkpoint', action='append', default=[], metavar='VIDEO=CLOCK',
                         help='Game clock you read at a video time, e.g. 60=1:01. Repeat for drift')
     parser.add_argument('--accept-sync', action='store_true',
@@ -360,7 +428,8 @@ def main(argv=None):
         if args.offset is None or not args.checkpoint:
             parser.error('--sync-only needs --offset and at least one --checkpoint')
         try:
-            print(json.dumps(measure_sync(args.offset, [parse_checkpoint(item) for item in args.checkpoint]), indent=2))
+            report = measure_sync(args.offset, [parse_checkpoint(item) for item in args.checkpoint])
+            print(json.dumps(report, indent=2) if args.json else '\n'.join(report['lines']))
         except ValueError as exc:
             parser.exit(1, f"Death clips: {exc}\n")
         return
