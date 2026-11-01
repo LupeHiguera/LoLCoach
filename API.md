@@ -213,10 +213,21 @@ One game for review. 404 `"Match not found"` for an unknown or missing `id`.
   - `offset_s`: seconds to **add** to game time to get video time
     (`video_s = game_ms / 1000 + offset_s`), the same meaning as the manual offset
     field. Negative when recording started after the game clock was already running.
-    Can be `null` if the game clock was not read; fall back to the manual offset.
+    `null` when the Live Client clock was not read. `null` is not `0`: offset `0`
+    claims the file starts at game 0:00, and that claim is still unchecked.
   - `status`: see `/api/recorder` statuses.
   - `url`: same-origin URL that streams the video (supports HTTP `Range`), or `null` when
     the file no longer exists on disk.
+  - `sync`: always present.
+    - `verified`: `false`. The stored offset has not been compared with the clock
+      painted in the video. The review page can show that comparison
+      (`corrected = offset_s + (expected_s − shown_s)`, expected from the offset,
+      shown read off the paused frame). It does not POST the result. One matching
+      timestamp does not change this flag. Drift, cuts, pauses and replay-speed
+      changes are unchecked.
+    - `anchor`: `live_clock` when `offset_s` is a finite number (Live Client clock
+      when recording started, including `0`), or `missing` when it is not. A
+      `live_clock` offset can still be off by about a second.
 
 ## GET /api/recording-file?id=<match_id> (new)
 
@@ -264,6 +275,12 @@ Create or replace the note for one moment (key: `match_id` + `moment_id`).
 | `evidence` | `stats_only` `recording` `memory` |
 
 Response: `{"saved": true}`.
+
+Display labels for `evidence`, in the review page only: `stats_only` → Timeline,
+`recording` → Recording, `memory` → Recollection. The value is the source of the
+player's note. `model_observed` and `human_verified` are harness verification labels
+(see Local model artifacts), not values of this field. Saving a note does not mark a
+model statement checked, and choosing Recording does not mark `sync.verified`.
 
 ---
 

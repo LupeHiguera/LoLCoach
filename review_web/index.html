@@ -131,7 +131,12 @@
     </section>
 
     <section class="box" aria-labelledby="review-h">
-      <div class="titlebar"><h2 id="review-h">Review</h2><span class="meta" id="saved"></span></div>
+      <div class="titlebar">
+        <h2 id="review-h">Review</h2>
+        <span id="review-evidence-tag"></span>
+        <span class="tip-wrap"><button class="info" type="button" aria-label="How evidence is labelled" aria-describedby="tip-evidence">ⓘ</button><span class="tip" role="tooltip" id="tip-evidence">Timeline is the Riot timeline and end-of-game stats. Recording is the video. Recollection is memory, not checked against either. model_observed is a model statement you have not checked. human_verified means you checked that statement against the footage. This form stores your note and its source only.</span></span>
+        <span class="meta" id="saved"></span>
+      </div>
       <div class="box-body review-grid">
         <div>
           <div class="state" id="review-none">No moment selected. Pick a row in Moments, or click a point on the chart.</div>
@@ -142,8 +147,9 @@
               <div class="fields">
                 <label for="reason">Possible reason</label>
                 <select id="reason"><option value="uncertain">Not sure yet</option><option value="dead">Dead</option><option value="recalling">Recalling / shopping</option><option value="fighting">Fighting</option><option value="roaming">Roaming / rotating</option><option value="pressured">Pressured out</option><option value="other">Other</option></select>
-                <label for="evidence">Evidence used</label>
-                <select id="evidence"><option value="stats_only">Timeline only (cause unconfirmed)</option><option value="recording">Recording reviewed</option><option value="memory">Recollection</option></select>
+                <label for="evidence">Evidence source</label>
+                <select id="evidence" aria-describedby="evidence-detail"><option value="stats_only">Timeline</option><option value="recording">Recording</option><option value="memory">Recollection</option></select>
+                <p class="dim span" id="evidence-detail"></p>
                 <label for="observation">Observation</label>
                 <textarea id="observation" maxlength="3000" required placeholder="What you saw, then what you suspect"></textarea>
                 <label for="alternative">Next time</label>
@@ -155,14 +161,37 @@
         </div>
         <fieldset class="recording">
           <legend>Recording</legend>
+          <p class="sync-line" id="sync-line">
+            <span class="etag etag-warn" id="sync-word">Unverified</span>
+            <span class="tip-wrap"><button class="info" type="button" aria-label="What unverified means" aria-describedby="tip-sync">ⓘ</button><span class="tip" role="tooltip" id="tip-sync">Unverified means this offset has not been compared with the clock painted in the video. The Live Client reading at record start can be off by about a second. One offset assumes continuous footage: no cuts, pauses, or replay-speed changes. A match at one timestamp does not mark the file verified. Offset 0 is not the same as a missing offset.</span></span>
+          </p>
           <p class="dim" id="recording-note">No recording linked. Choose a local file; it stays in this browser.</p>
+          <dl class="sync-facts">
+            <div><dt>Offset</dt><dd id="sync-offset">not set</dd></div>
+            <div><dt>Video</dt><dd id="sync-video">no file</dd></div>
+            <div><dt>Expected</dt><dd id="sync-expected">—</dd></div>
+          </dl>
+          <p class="dim" id="sync-formula">video time = game time + offset</p>
           <div class="fields">
             <label for="video-file">File</label><input id="video-file" type="file" accept="video/*">
-            <label for="video-offset">Video time at game 0:00 (s)</label><input id="video-offset" type="number" step="0.1" value="0">
+            <label for="video-offset">Offset (s)</label><input id="video-offset" type="number" step="0.1" value="" inputmode="decimal">
+            <p class="dim span" id="offset-hint">Video time at game 0:00. Negative if the file starts later. Leave blank when no clock was read.</p>
           </div>
-          <div class="actions"><button class="btn" id="seek-video" type="button">Jump to review start</button><span class="dim">Space: play / pause</span></div>
+          <div class="actions">
+            <button class="btn" id="seek-video" type="button">Jump to review start</button>
+            <button class="btn" id="seek-death" type="button" hidden>Jump to death</button>
+            <span class="dim">Space: play / pause</span>
+          </div>
           <video id="video" controls hidden></video>
-          <p class="dim" id="video-status"></p>
+          <div class="fields" id="clock-check">
+            <label for="shown-clock">Clock shown</label>
+            <input id="shown-clock" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="4:58" aria-describedby="shown-hint">
+            <p class="dim span" id="shown-hint">Game clock in the paused frame, as m:ss or seconds.</p>
+          </div>
+          <p class="dim" id="video-status" aria-live="polite"></p>
+          <div class="actions" id="sync-actions" hidden>
+            <button class="btn" id="apply-offset" type="button">Use corrected offset</button>
+          </div>
         </fieldset>
       </div>
     </section>

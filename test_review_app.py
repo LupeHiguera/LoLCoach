@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer
 
 from fetch_matches import SCHEMA, store_match
 from review_app import Fetcher, ReviewStore, fetch_message, make_handler, static_file
-from review_data import find_moments, kill_feed, score
+from review_data import find_moments, kill_feed, score, sync_status
 from test_analyze import ME, match as riot_match
 
 
@@ -271,6 +271,47 @@ class RecorderApiTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             urlopen(self.base + '/api/recording-file?id=A')
         self.assertEqual(error.exception.code, 404)
+
+    def test_match_recording_sync_stays_unverified(self):
+        # A stored offset is the Live Client reading, not a HUD check. 0 is a claim; null is not 0.
+        self.assertEqual(sync_status(-12.4), {'verified': False, 'anchor': 'live_clock'})
+        self.assertEqual(sync_status(0), {'verified': False, 'anchor': 'live_clock'})
+        self.assertEqual(sync_status(0.0), {'verified': False, 'anchor': 'live_clock'})
+        for missing in (None, float('nan'), True, False):
+            self.assertEqual(sync_status(missing), {'verified': False, 'anchor': 'missing'})
+        video = Path(self.tmp.name) / 'game.mp4'
+        video.write_bytes(b'fixture')
+        with closing(sqlite3.connect(self.notes)) as conn, conn:
+            conn.execute("INSERT INTO recordings (match_id, path, offset_s, status) "
+                         "VALUES ('A', ?, -12.4, 'linked')", (str(video),))
+        with urlopen(self.base + '/api/match?id=A') as response:
+            recording = json.load(response)['recording']
+        self.assertEqual(recording['offset_s'], -12.4)
+        self.assertEqual(recording['sync'], {'verified': False, 'anchor': 'live_clock'})
+        self.assertEqual(recording['url'], '/api/recording-file?id=A')
+        gone = Path(self.tmp.name) / 'gone.mp4'
+        with closing(sqlite3.connect(self.notes)) as conn, conn:
+            conn.execute("UPDATE recordings SET offset_s = NULL, path = ?", (str(gone),))
+        with urlopen(self.base + '/api/match?id=A') as response:
+            recording = json.load(response)['recording']
+        self.assertIsNone(recording['offset_s'])
+        self.assertIsNone(recording['url'])
+        self.assertEqual(recording['sync'], {'verified': False, 'anchor': 'missing'})
+
+
+class ReviewCopyTests(unittest.TestCase):
+    def test_review_page_names_sources_and_unverified_sync(self):
+        root = Path(__file__).resolve().parent
+        page = ((root / 'review_web/index.html').read_text(encoding='utf-8')
+                + (root / 'review_web/app.js').read_text(encoding='utf-8'))
+        self.assertIn('>Timeline</option>', page)
+        self.assertIn('>Recording</option>', page)
+        self.assertIn('>Recollection</option>', page)
+        self.assertIn('model_observed', page)
+        self.assertIn('human_verified', page)
+        self.assertIn('>Unverified</span>', page)
+        self.assertIn('offset + (expected - shown)', page)
+        self.assertNotIn('Offset read from the game clock', page)
 
 
 def child(code):

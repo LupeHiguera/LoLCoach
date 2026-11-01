@@ -47,9 +47,10 @@ class ReviewStore(review_data.ReviewStore):
     """review_data.ReviewStore plus the URL this server streams the recording from."""
 
     def recording(self, match_id):
-        """{path, offset_s, status, url} for the match's recording, or None.
+        """{path, offset_s, status, url, sync} for the match's recording, or None.
 
         url is set only when the linked file still exists; see recording_path.
+        sync.verified is always false; see review_data.sync_status.
         """
         out = super().recording(match_id)
         if out is not None and self.recording_path(match_id):
