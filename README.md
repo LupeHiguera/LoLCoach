@@ -149,8 +149,9 @@ On the Windows gaming PC:
    To check a clip: `death_clip_s` in the manifest is where the death should be. Pause
    there and read the game clock. If it differs from the death time (`death_game_ms`),
    the correct offset is `offset_s + (expected − shown)` in seconds, e.g. expecting
-   5:00 and seeing 4:58 gives `offset_s + 2`. Rerun with `--video` and that `--offset`
-   into a new `--output`.
+   5:00 and seeing 4:58 gives `offset_s + 2`. `coach.clock.corrected_offset` is that
+   arithmetic for one reading. It does not mark sync verified. Rerun with `--video`
+   and that `--offset` into a new `--output`.
 6. Install [FFmpeg](https://ffmpeg.org/download.html) with both `ffmpeg` and
    `ffprobe` on PATH. These are external executables, not Python dependencies.
    Extract clips using the imported match ID:

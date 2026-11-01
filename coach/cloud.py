@@ -3,12 +3,11 @@ import copy
 import hashlib
 import json
 import os
-import re
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from coach import harness
+from coach import harness, privacy
 
 MODEL = 'gpt-6.1-sol'
 ENDPOINT = 'https://api.openai.com/v1/responses'
@@ -28,12 +27,7 @@ def checked_text(packet, observations):
     context = json.loads(request['messages'][1]['content'][0]['text'])
     # Frames are only evidence links in the observations, not coach input. No file names or images.
     context['packet'].pop('frames')
-    serialized = json.dumps(context, ensure_ascii=False)
-    forbidden = (r'(?i)\b(?:puuid|summonerName|riotId|raw_json|rawJson|sk-proj-)\b',
-                 r'(?i)(?:https?://|file://|data:|[A-Z]:[\\/]|/(?:Users|home|private|tmp)/)',
-                 r'\S+#\w+', r'\b[A-Za-z0-9_-]{60,}\b')
-    if any(re.search(pattern, serialized) for pattern in forbidden):
-        raise ValueError('Cloud text contains a possible identifier, secret, URL or local path')
+    privacy.assert_clean(context, 'Cloud text')
     return context
 
 

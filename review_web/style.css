@@ -308,6 +308,7 @@ legend { font: 600 15px var(--display); text-transform: uppercase; color: var(--
 /* ---------- sidebar ---------- */
 .focus-goal { font-weight: bold; color: var(--text); }
 .focus-check { color: var(--ash); }
+.sync-unverified { color: var(--warn); font-weight: bold; }
 #focus-form { display: grid; gap: 8px; margin-top: 8px; }
 .filters { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 8px; border-bottom: 1px solid var(--ink-line); }
 .filters label { color: var(--ash); }

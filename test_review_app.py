@@ -368,5 +368,36 @@ class StaticFileTests(unittest.TestCase):
                 self.assertIsNone(static_file(bad, self.web))
 
 
+class ReviewSurfaceTests(unittest.TestCase):
+    """Static copy for focus, evidence labels, and the unverified clock readout."""
+
+    def setUp(self):
+        root = Path(__file__).parent / 'review_web'
+        self.html = (root / 'index.html').read_text(encoding='utf-8')
+        self.js = (root / 'app.js').read_text(encoding='utf-8')
+
+    def test_evidence_labels_keep_stored_values(self):
+        self.assertIn('<option value="stats_only">Timeline</option>', self.html)
+        self.assertIn('<option value="recording">Recording</option>', self.html)
+        self.assertIn('<option value="memory">Recollection</option>', self.html)
+        self.assertIn("stats_only: 'Timeline'", self.js)
+        self.assertIn("recording: 'Recording'", self.js)
+        self.assertIn("memory: 'Recollection'", self.js)
+        self.assertIn('model_observed', self.html)
+        self.assertNotIn('value="0"', self.html.split('id="video-offset"')[1][:80])
+
+    def test_focus_and_sync_stay_ungraded_and_unverified(self):
+        self.assertIn('id="focus-grade"', self.html)
+        self.assertIn("Not graded.", self.js)
+        self.assertIn('id="sync-readout"', self.html)
+        self.assertIn('function predictedGameSeconds(videoSeconds, offsetSeconds)', self.js)
+        self.assertIn('return videoSeconds - offsetSeconds;', self.js)
+        self.assertIn('class="sync-unverified">Unverified', self.js)
+        self.assertIn('No recording linked.', self.js)
+        self.assertIn('is not on disk', self.js)
+        self.assertIn('The recorder did not store an offset.', self.js)
+        self.assertNotIn('Offset read from the game clock', self.js)
+
+
 if __name__ == '__main__':
     unittest.main()
