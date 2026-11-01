@@ -216,6 +216,13 @@ The examples are fabricated contract fixtures, not gameplay evidence or measured
 model outputs. Example frame filenames do not point to real images; model request
 previews substitute image placeholders and never contact the server or write files.
 
+`control-440000` in that manifest is a non-death clip (`death_game_ms` is null).
+Any clip id is selected the same way. The decision has to fall inside the clip:
+
+```sh
+python -m coach.harness prepare --manifest coach/examples/clip_manifest.json --moment control-440000 --at-ms 440000 --frames 2 --focus "Fabricated non-death lane check" --output data/moments/control-example --dry-run
+```
+
 Once a real recording has been clipped, select a decision **before** the death.
 For example, `295000` means game 4:55, before a death at 5:00:
 
@@ -288,6 +295,27 @@ There are three separate evaluations:
 | Coaching (`--task review`, default) | Fixed packet and observations, identical for every coach | Contract/citation validity, expected assessment, timing, human coaching rubric |
 | Sparse vision smoke test (`--task observe`, local only) | Current harness's selected PNG frames | Contract/timestamp checks and human vision rubric |
 | Dense action evaluation (`coach.event_eval`) | Human-labelled and predicted event timelines | One-to-one action precision/recall/F1 and timestamp error |
+
+The example dataset also includes non-death **control moments**, so a review can
+be checked for the case where the evidence does not support a mistake.
+`control-safe-recall` and `control-lane-hold` are `reviewable`. Each folder's
+`review.json` is a contract example: one cited hypothesis, no alternative, and
+no practice focus. `control-unreadable` is `needs_more_evidence` because the
+frames have no visual observation. Three more labelled fixtures mimic anonymized
+patterns and stay fabricated: `pattern-early-river` (death at 4:10 with a river
+position note), `pattern-charm-miss` (two frames of a charm-cast hypothesis),
+and `pattern-farm-gap` (a lower HUD creep count at 10:00). New moments use two
+games, one split each: `synthetic-game-measured-test` on test and
+`synthetic-game-measured-dev` on dev. The original pair stays first, so
+`--limit 2` still runs only those two.
+
+`review.json` stays out of the model request. `validate` checks packets and
+observations. Assessment agreement compares `expected_assessment` with the
+review's assessment field. The unit tests check the no-alternative shape on
+the control examples. A human rubric scores whether a real run was right to
+withhold advice. These files contain no footage. Champion names are roles in
+the fiction. A passing `validate` measures plumbing and the contract. Coaching
+quality remains a separate human judgment.
 
 The sparse path is capped at eight frames and sixteen observations. It **cannot
 evaluate hundreds of actions in a clip**. Dense action scoring accepts up to 10,000

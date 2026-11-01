@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-pattern-farm-gap",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Orianna",
+  "start_ms": 570000,
+  "decision_ms": 600000,
+  "sync_verified": false,
+  "focus": "Fabricated creep-count comparison at 10:00.",
+  "frames": [
+    {"id": "frame-570000", "game_ms": 570000, "image_file": "frame-570000.png"},
+    {"id": "frame-600000", "game_ms": 600000, "image_file": "frame-600000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

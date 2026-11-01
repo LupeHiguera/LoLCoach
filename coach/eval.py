@@ -1,4 +1,9 @@
-"""Portable moment benchmarks: python -m coach.eval --help. Labels never enter model input."""
+"""Portable moment benchmarks: python -m coach.eval --help. Labels never enter model input.
+
+expected_assessment is reviewable, needs_more_evidence, or null. A reviewable
+review may omit the alternative and the practice focus when the evidence does
+not support a change. Report agreement counts the assessment field only.
+"""
 import argparse
 import json
 import math

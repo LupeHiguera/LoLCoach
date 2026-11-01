@@ -24,6 +24,19 @@
       "events": [
         {"time": 300000, "side": "enemy", "killer": "Akali", "victim": "Ahri", "me": "death", "assists": [], "x": null, "y": null, "clip_s": 60}
       ]
+    },
+    {
+      "moment_id": "control-440000",
+      "file": "control-440000.mp4",
+      "death_game_ms": null,
+      "source_start_s": 410,
+      "source_end_s": 450,
+      "game_start_ms": 410000,
+      "game_end_ms": 450000,
+      "death_clip_s": null,
+      "truncated_before": false,
+      "truncated_after": false,
+      "events": []
     }
   ],
   "skipped": []

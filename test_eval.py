@@ -11,23 +11,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from coach import cloud, eval as evaluation, event_eval, harness
+from coach import cloud, contracts, eval as evaluation, event_eval, harness
 from test_harness import PNG
 
 EXAMPLES = Path(__file__).parent / 'coach' / 'examples'
 
 
 def answer(context):
+    """Contract-valid stub. Any stored observation is cited; events alone abstain."""
     moment = context['packet']['moment_id']
-    if context['observations']['observations']:
+    observations = context['observations']['observations']
+    if observations:
+        ref = observations[0]['id']
         return dict(schema_version=1, moment_id=moment, assessment='reviewable',
-                    claims=[dict(statement='Low health and a visible opponent make advancing risky.',
-                                 kind='hypothesis', evidence_refs=['obs-position'])],
-                    alternative=dict(action='Move toward the visible turret.', tradeoff='Give up pressure.',
-                                     evidence_refs=['obs-position']), practice_focus='Review low-health advances.',
+                    claims=[dict(statement='The cited fixture evidence supports a bounded review.',
+                                 kind='hypothesis', evidence_refs=[ref])],
+                    alternative=dict(action='Hold the position described by the cited evidence.',
+                                     tradeoff='Give up pressure.', evidence_refs=[ref]),
+                    practice_focus='Review this fabricated situation once.',
                     missing_evidence=['Cooldowns are unknown.'])
     return dict(schema_version=1, moment_id=moment, assessment='needs_more_evidence', claims=[],
-                alternative=None, practice_focus=None, missing_evidence=['No gameplay frames were supplied.'])
+                alternative=None, practice_focus=None, missing_evidence=['No observation evidence was supplied.'])
 
 
 def envelope(result, status='completed'):
@@ -58,6 +62,19 @@ class DatasetTests(unittest.TestCase):
         for spec, case in zip(data['cases'], cases):
             spec['cloud_approved_sha256'] = cloud.fingerprint(cloud.checked_text(case['packet'], case['observations']))
         self.dataset.write_text(json.dumps(data))
+
+    def selected(self, split='test'):
+        _, cases = evaluation.load_dataset(self.dataset)
+        if split == 'all':
+            return cases
+        return [case for case in cases if case['spec']['split'] == split]
+
+    def assert_completed_test_split(self, summary):
+        cases = self.selected()
+        labelled = sum(case['spec']['expected_assessment'] is not None for case in cases)
+        self.assertEqual(summary['counts']['ok'], len(cases))
+        self.assertEqual(summary['assessment_labelled_ok'], labelled)
+        self.assertEqual(summary['assessment_matches'], labelled)
 
     def run_local(self, response=None):
         calls = []
@@ -105,8 +122,7 @@ class DatasetTests(unittest.TestCase):
 
     def test_run_report_and_resume_do_not_repeat_requests_or_send_labels(self):
         summary, calls = self.run_local()
-        self.assertEqual(summary['counts']['ok'], 2)
-        self.assertEqual(summary['assessment_matches'], 2)
+        self.assert_completed_test_split(summary)
         self.assertTrue(summary['synthetic'])
         for request in calls:
             self.assertEqual(len(request['messages']), 2)
@@ -116,7 +132,7 @@ class DatasetTests(unittest.TestCase):
             self.assertNotIn('expected_assessment', json.dumps(context))
         again, calls = self.run_local()
         self.assertEqual(calls, [])
-        self.assertEqual(again['assessment_matches'], 2)
+        self.assert_completed_test_split(again)
         self.assertFalse((self.output / '.lock').exists())
 
     def test_changed_evidence_or_prompt_requires_another_run(self):
@@ -131,9 +147,10 @@ class DatasetTests(unittest.TestCase):
             self.run_local()
 
     def test_bad_output_is_failure_and_is_not_retried(self):
+        count = len(self.selected())
         summary, calls = self.run_local(response={})
-        self.assertEqual(summary['counts']['failed'], 2)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(summary['counts']['failed'], count)
+        self.assertEqual(len(calls), count)
         _, calls = self.run_local()
         self.assertEqual(calls, [])
         row = harness.read_json(evaluation.result_path(self.output, 'missing-footage'))
@@ -148,7 +165,7 @@ class DatasetTests(unittest.TestCase):
             row['scores'] = {key: 2 for key in evaluation.RUBRIC}
             row['unsupported_claims'] = 0
         summary = evaluation.summarize_ratings(sheet, self.output)
-        self.assertEqual(summary['rated_cases'], 2)
+        self.assertEqual(summary['rated_cases'], len(self.selected()))
         self.assertEqual(summary['mean_scores']['factual_support'], 2)
         sheet['ratings'][0]['scores']['uncertainty'] = True
         with self.assertRaises(ValueError):
@@ -188,7 +205,7 @@ class DatasetTests(unittest.TestCase):
         self.approve()
         summary, calls = self.run_local()
         self.assertEqual(calls, [])
-        self.assertEqual(summary['counts']['ok'], 2)
+        self.assert_completed_test_split(summary)
 
     def test_paid_runs_require_budget_and_exact_human_privacy_hash(self):
         with mock.patch.object(cloud, 'complete') as call:
@@ -220,19 +237,20 @@ class DatasetTests(unittest.TestCase):
 
         with mock.patch.object(cloud, 'load_key', return_value='dummy-key'), \
                 mock.patch.object(cloud, 'complete', side_effect=simulated) as call, redirect_stdout(io.StringIO()):
+            count = len(self.selected())
             summary = evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
-            self.assertEqual(call.call_count, 2)
-            self.assertEqual(summary['counts']['ok'], 2)
-            self.assertAlmostEqual(summary['estimated_cost_usd'], 2 * 0.00562)
+            self.assertEqual(call.call_count, count)
+            self.assertEqual(summary['counts']['ok'], count)
+            self.assertAlmostEqual(summary['estimated_cost_usd'], count * 0.00562)
             self.assertLess(summary['reserved_usd'], 1)
             evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
-            self.assertEqual(call.call_count, 2)
+            self.assertEqual(call.call_count, count)
 
     def test_tiny_budget_sends_nothing(self):
         self.approve()
         with mock.patch.object(cloud, 'load_key') as load, mock.patch.object(cloud, 'complete') as call:
             summary = evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=0.0001)
-            self.assertEqual(summary['counts']['not_run'], 2)
+            self.assertEqual(summary['counts']['not_run'], len(self.selected()))
             self.assertEqual(summary['reserved_usd'], 0)
             call.assert_not_called()
             load.assert_not_called()
@@ -248,7 +266,7 @@ class DatasetTests(unittest.TestCase):
             evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
         with mock.patch.object(cloud, 'load_key') as load, mock.patch.object(cloud, 'complete') as call:
             summary = evaluation.run_dataset(self.dataset, self.output, 'openai', cloud.MODEL, budget_usd=1)
-            self.assertEqual(summary['counts']['ok'], 2)
+            self.assertEqual(summary['counts']['ok'], len(self.selected()))
             load.assert_not_called()
             call.assert_not_called()
 
@@ -273,7 +291,7 @@ class DatasetTests(unittest.TestCase):
         self.run_local()
         (self.output / 'report.json.tmp').write_text('partial')
         summary, calls = self.run_local()
-        self.assertEqual((summary['counts']['ok'], len(calls)), (2, 0))
+        self.assertEqual((summary['counts']['ok'], len(calls)), (len(self.selected()), 0))
         self.assertFalse((self.output / 'report.json.tmp').exists())
 
     def test_pending_request_is_never_retransmitted_on_resume(self):
@@ -318,23 +336,110 @@ class DatasetTests(unittest.TestCase):
         thread.start()
         try:
             endpoint = f'http://127.0.0.1:{server.server_port}/v1'
+            count = len(self.selected())
             with redirect_stdout(io.StringIO()):
                 summary = evaluation.run_dataset(self.dataset, self.output, 'local', 'stub', endpoint)
-            self.assertEqual(summary['counts']['ok'], 2)
-            self.assertEqual(len(requests), 2)
+            self.assertEqual(summary['counts']['ok'], count)
+            self.assertEqual(len(requests), count)
             _, cases = evaluation.load_dataset(self.dataset)
             for case in cases:
+                root = (self.dataset.parent / case['spec']['packet']).parent
                 for frame in case['packet']['frames']:
-                    (self.dataset.parent / frame['image_file']).write_bytes(PNG)
+                    (root / frame['image_file']).write_bytes(PNG)
             with redirect_stdout(io.StringIO()):
                 summary = evaluation.run_dataset(self.dataset, self.root / 'vision-run', 'local', 'stub', endpoint, task='observe')
-            self.assertEqual(summary['counts']['ok'], 2)
-            self.assertEqual(len(requests), 4)
+            self.assertEqual(summary['counts']['ok'], count)
+            self.assertEqual(len(requests), count * 2)
             self.assertTrue(any(c['type'] == 'image_url' for c in requests[-1]['messages'][1]['content']))
         finally:
             server.shutdown()
             server.server_close()
             thread.join()
+
+    def test_control_moments_and_pattern_fixtures_stay_one_game_per_split(self):
+        """Control review.json withholds advice. Pattern cases are labelled fixtures.
+
+        Agreement counts the assessment field. A stub that adds an alternative
+        still matches a reviewable control label. review.json stays out of the request.
+        """
+        data, cases = evaluation.load_dataset(self.dataset)
+        self.assertTrue(data['synthetic'])
+        by_id = {case['spec']['id']: case for case in cases}
+        self.assertEqual([case['spec']['id'] for case in cases[:2]],
+                         ['missing-footage', 'visible-positioning'])
+        expected = {
+            'pattern-early-river': ('synthetic-game-measured-test', 'test', 'reviewable'),
+            'pattern-charm-miss': ('synthetic-game-measured-test', 'test', 'reviewable'),
+            'control-safe-recall': ('synthetic-game-measured-test', 'test', 'reviewable'),
+            'control-unreadable': ('synthetic-game-measured-test', 'test', 'needs_more_evidence'),
+            'control-lane-hold': ('synthetic-game-measured-dev', 'dev', 'reviewable'),
+            'pattern-farm-gap': ('synthetic-game-measured-dev', 'dev', 'reviewable'),
+        }
+        splits = {}
+        for case_id, (group, split, label) in expected.items():
+            case = by_id[case_id]
+            self.assertEqual((case['spec']['group'], case['spec']['split'],
+                              case['spec']['expected_assessment']), (group, split, label))
+            self.assertEqual(splits.setdefault(group, split), split)
+            self.assertNotIn('death-', case['packet']['moment_id'])
+            self.assertIn('Fabricated', json.dumps(case['observations']))
+            cloud.checked_text(case['packet'], case['observations'])
+            deaths = [event for event in case['packet']['events'] if event['me'] == 'death']
+            if case_id == 'pattern-early-river':
+                self.assertEqual(len(deaths), 1)
+                self.assertLess(case['packet']['decision_ms'], 8 * 60 * 1000)
+                self.assertEqual(deaths[0]['game_ms'], case['packet']['decision_ms'])
+                self.assertIn('river', case['observations']['observations'][0]['statement'])
+            else:
+                self.assertEqual(deaths, [])
+        self.assertEqual(set(splits), {'synthetic-game-measured-test', 'synthetic-game-measured-dev'})
+        self.assertEqual({by_id[name]['packet']['opponent'] for name in expected
+                          if expected[name][0] == 'synthetic-game-measured-test'}, {'Syndra'})
+        self.assertEqual({by_id[name]['packet']['opponent'] for name in expected
+                          if expected[name][0] == 'synthetic-game-measured-dev'}, {'Orianna'})
+        charm = by_id['pattern-charm-miss']['observations']['observations'][0]
+        self.assertEqual(len(charm['evidence_refs']), 2)
+        self.assertIn('charm', charm['statement'].lower())
+        self.assertEqual(by_id['pattern-farm-gap']['packet']['decision_ms'], 600000)
+        self.assertIn('creep', by_id['pattern-farm-gap']['observations']['observations'][0]['statement'])
+        for case_id in ('control-safe-recall', 'control-lane-hold', 'control-unreadable'):
+            case = by_id[case_id]
+            review = harness.read_json(self.dataset.parent / 'measured' / case_id / 'review.json')
+            contracts.validate_review(review, case['packet'], case['observations'])
+            self.assertEqual(review['assessment'], case['spec']['expected_assessment'])
+            self.assertIsNone(review['alternative'])
+            self.assertIsNone(review['practice_focus'])
+            if review['assessment'] == 'reviewable':
+                self.assertIn('does not support a mistake', review['claims'][0]['statement'])
+                advised = copy.deepcopy(review)
+                advised['practice_focus'] = 'Invent a drill.'
+                with self.assertRaisesRegex(ValueError, 'practice focus'):
+                    contracts.validate_review(advised, case['packet'], case['observations'])
+            else:
+                self.assertEqual(review['claims'], [])
+                self.assertTrue(review['missing_evidence'])
+        for case_id in ('pattern-early-river', 'pattern-charm-miss', 'pattern-farm-gap'):
+            self.assertFalse((self.dataset.parent / 'measured' / case_id / 'review.json').exists())
+
+        summary, calls = self.run_local()
+        self.assert_completed_test_split(summary)
+        saved = harness.read_json(evaluation.result_path(self.output, 'control-safe-recall'))
+        gold = harness.read_json(self.dataset.parent / 'measured' / 'control-safe-recall' / 'review.json')
+        self.assertEqual(saved['result']['assessment'], gold['assessment'])
+        self.assertIsNone(gold['alternative'])
+        self.assertIsNotNone(saved['result']['alternative'])
+        sent = json.dumps(calls)
+        self.assertNotIn('review.json', sent)
+        self.assertNotIn('does not support a mistake', sent)
+        self.assertNotIn('expected_assessment', sent)
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            evaluation.main(['validate', '--dataset', str(self.dataset)])
+        report = json.loads(stdout.getvalue())
+        self.assertEqual((report['dataset'], report['synthetic'], report['cases']),
+                         (data['id'], True, len(cases)))
+        self.assertGreaterEqual(report['cases'], 8)
 
 
 class ReportTests(unittest.TestCase):

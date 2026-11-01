@@ -20,6 +20,60 @@
       "observations": "position_observations.json",
       "expected_assessment": "reviewable",
       "cloud_approved_sha256": null
+    },
+    {
+      "id": "pattern-early-river",
+      "group": "synthetic-game-measured-test",
+      "split": "test",
+      "packet": "measured/pattern-early-river/packet.json",
+      "observations": "measured/pattern-early-river/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "pattern-charm-miss",
+      "group": "synthetic-game-measured-test",
+      "split": "test",
+      "packet": "measured/pattern-charm-miss/packet.json",
+      "observations": "measured/pattern-charm-miss/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "control-safe-recall",
+      "group": "synthetic-game-measured-test",
+      "split": "test",
+      "packet": "measured/control-safe-recall/packet.json",
+      "observations": "measured/control-safe-recall/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "control-unreadable",
+      "group": "synthetic-game-measured-test",
+      "split": "test",
+      "packet": "measured/control-unreadable/packet.json",
+      "observations": "measured/control-unreadable/observations.json",
+      "expected_assessment": "needs_more_evidence",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "control-lane-hold",
+      "group": "synthetic-game-measured-dev",
+      "split": "dev",
+      "packet": "measured/control-lane-hold/packet.json",
+      "observations": "measured/control-lane-hold/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
+    },
+    {
+      "id": "pattern-farm-gap",
+      "group": "synthetic-game-measured-dev",
+      "split": "dev",
+      "packet": "measured/pattern-farm-gap/packet.json",
+      "observations": "measured/pattern-farm-gap/observations.json",
+      "expected_assessment": "reviewable",
+      "cloud_approved_sha256": null
     }
   ]
 }

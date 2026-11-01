@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-unreadable",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 900000,
+  "decision_ms": 920000,
+  "sync_verified": false,
+  "focus": "Fabricated frames with no visual note.",
+  "frames": [
+    {"id": "frame-900000", "game_ms": 900000, "image_file": "frame-900000.png"},
+    {"id": "frame-920000", "game_ms": 920000, "image_file": "frame-920000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}

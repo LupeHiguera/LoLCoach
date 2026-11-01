@@ -61,9 +61,30 @@ def read_json(path):
     return json.loads(data, parse_constant=invalid_number)
 
 
+def decision_deadline_ms(clip):
+    """Exclusive end of the decision range, in game-clock milliseconds.
+
+    A death clip ends at death_game_ms when that is earlier than the footage, so
+    the death itself stays outside the prepared window. Null means the clip is
+    not bounded by a death. The decision still has to fall inside the footage.
+    """
+    end = clip['game_end_ms']
+    death = clip.get('death_game_ms')
+    if death is None:
+        return end
+    if type(death) is not int:
+        raise ValueError('death_game_ms must be integer milliseconds or null')
+    return min(end, death)
+
+
 def make_packet(manifest, moment_id, decision_ms, window_ms=DEFAULT_WINDOW_MS, frame_count=6,
                 focus='Deaths and positioning', knowledge=None):
-    """Select one pre-decision window; later events and match outcomes never enter it."""
+    """Select one pre-decision window; later events and match outcomes never enter it.
+
+    moment_id is the clip id from the manifest. Death clips use ids such as
+    death-300000. A non-death clip id is selected the same way; it has no
+    death_game_ms. The packet's own moment id is an opaque hash, not the clip id.
+    """
     if type(decision_ms) is not int or type(window_ms) is not int or not 0 < window_ms <= MAX_WINDOW_MS:
         raise ValueError('Decision must be integer ms; window must be 1..60000 ms')
     if type(frame_count) is not int or not 1 <= frame_count <= MAX_FRAMES:
@@ -72,7 +93,9 @@ def make_packet(manifest, moment_id, decision_ms, window_ms=DEFAULT_WINDOW_MS, f
     if len(selected) != 1:
         raise ValueError('Select exactly one available clip moment')
     clip = selected[0]
-    if not clip['game_start_ms'] <= decision_ms < min(clip['game_end_ms'], clip['death_game_ms']):
+    if not clip['game_start_ms'] <= decision_ms < decision_deadline_ms(clip):
+        if clip.get('death_game_ms') is None:
+            raise ValueError('Decision timestamp must be inside the non-death clip')
         raise ValueError('Decision timestamp must be inside the clip and before the death')
     start = max(math.ceil(clip['game_start_ms']), decision_ms - window_ms)
     times = sorted({round(start + (decision_ms - start) * i / max(1, frame_count - 1))
@@ -262,7 +285,8 @@ def main(argv=None):
     prepare = commands.add_parser('prepare', help='Select one moment and extract its frames')
     prepare.add_argument('--manifest', type=Path, required=True)
     prepare.add_argument('--moment', required=True)
-    prepare.add_argument('--at-ms', type=int, required=True, help='Decision timestamp, before the death')
+    prepare.add_argument('--at-ms', type=int, required=True,
+                         help='Decision inside the clip; before the death when the clip has one')
     prepare.add_argument('--window-ms', type=int, default=DEFAULT_WINDOW_MS)
     prepare.add_argument('--frames', type=int, default=6)
     prepare.add_argument('--focus', default='Deaths and positioning')

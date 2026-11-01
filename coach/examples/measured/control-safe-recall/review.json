@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-safe-recall",
+  "assessment": "reviewable",
+  "claims": [
+    {
+      "statement": "Fabricated fixture: the cited observation places the mid champion beside her turret during a visible recall. That evidence does not support a mistake.",
+      "kind": "hypothesis",
+      "evidence_refs": ["obs-safe-recall"]
+    }
+  ],
+  "alternative": null,
+  "practice_focus": null,
+  "missing_evidence": [
+    "Enemies outside the frame are unknown."
+  ]
+}

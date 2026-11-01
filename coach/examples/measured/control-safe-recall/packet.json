@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "moment_id": "moment-control-safe-recall",
+  "patch": "example",
+  "champion": "Ahri",
+  "opponent": "Syndra",
+  "start_ms": 720000,
+  "decision_ms": 745000,
+  "sync_verified": false,
+  "focus": "Fabricated recall beside a turret.",
+  "frames": [
+    {"id": "frame-720000", "game_ms": 720000, "image_file": "frame-720000.png"},
+    {"id": "frame-745000", "game_ms": 745000, "image_file": "frame-745000.png"}
+  ],
+  "events": [],
+  "knowledge": []
+}
