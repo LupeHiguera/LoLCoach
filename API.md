@@ -85,7 +85,10 @@ validity and expected-assessment agreement do not establish factual correctness.
 
 `coach.cloud` is separate from the local harness. It permits only text-only
 GPT-6.1 Sol Responses requests to fixed OpenAI HTTPS, with `store:false`, fresh
-system/user context, no tools/history/media, bounded output, and no redirects,
+system/user context, no tools/history/media, bounded output, and no redirects.
+A request is refused before the network if it contains an image, audio or video
+key, a `data:image` / `data:audio` / `data:video` URL, or a footage filename.
+Vision benchmarks stay on loopback.
 proxies or automatic retries. `preview-cloud` prints exact text and its canonical
 SHA-256. A human must check every text field for identifiers before putting that
 hash in the case. Obvious private markers/paths/URLs are rejected automatically;

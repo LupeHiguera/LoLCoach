@@ -10,6 +10,11 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from coach import harness
 
+# Payload keys that would carry frames, audio or video. Text coaching never sends them.
+MEDIA_KEYS = {'image_url', 'input_image', 'input_audio', 'input_video', 'audio', 'video'}
+MEDIA_TEXT = re.compile(
+    r'(?i)(?:data:(?:image|audio|video)|(?:^|[\s\'"\\/])[\w.-]+\.(?:mp4|mkv|webm|mov|avi|png|jpe?g|webp|wav|mp3|m4a)\b)')
+
 MODEL = 'gpt-6.1-sol'
 ENDPOINT = 'https://api.openai.com/v1/responses'
 PRICING = dict(as_of='2026-09-29', input_per_million=2.0, cached_per_million=0.10,
@@ -22,12 +27,29 @@ def fingerprint(value):
                                      separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
+def assert_text_only(value):
+    """Reject footage before a cloud call. The error does not echo the payload."""
+    def walk(node):
+        if isinstance(node, dict):
+            for key, item in node.items():
+                if str(key).lower() in MEDIA_KEYS:
+                    raise ValueError('Cloud text cannot include footage, frames or audio')
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, str) and MEDIA_TEXT.search(node):
+            raise ValueError('Cloud text cannot include footage, frames or audio')
+    walk(value)
+
+
 def checked_text(packet, observations):
     """Whitelist structured fields and reject obvious identifiers; human checking is still required."""
     request = harness.build_request('review', packet, MODEL, observations)
     context = json.loads(request['messages'][1]['content'][0]['text'])
     # Frames are only evidence links in the observations, not coach input. No file names or images.
     context['packet'].pop('frames')
+    assert_text_only(context)
     serialized = json.dumps(context, ensure_ascii=False)
     forbidden = (r'(?i)\b(?:puuid|summonerName|riotId|raw_json|rawJson|sk-proj-)\b',
                  r'(?i)(?:https?://|file://|data:|[A-Z]:[\\/]|/(?:Users|home|private|tmp)/)',
@@ -62,6 +84,7 @@ def make_request(context, max_output_tokens=4096):
                    text=dict(format=dict(type='json_schema', name='review', strict=True, schema=schema)))
     if len(json.dumps(request, ensure_ascii=False)) > harness.MAX_TEXT_CHARS:
         raise ValueError('Cloud request exceeds the moment text budget')
+    assert_text_only(request)
     return request
 
 
@@ -106,6 +129,7 @@ def load_key(env_file=Path('.env.local')):
 
 def complete(request, key):
     """Single fixed HTTPS request. Errors never include headers, server bodies or input text."""
+    assert_text_only(request)
     req = Request(ENDPOINT, json.dumps(request, ensure_ascii=False).encode('utf-8'),
                   headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key}, method='POST')
     opener = build_opener(ProxyHandler({}), harness.NoRedirect())

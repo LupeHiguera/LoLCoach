@@ -365,6 +365,20 @@ class CloudTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'Cloud text'):
                 cloud.checked_text(packet, edited)
 
+    def test_footage_is_refused_before_any_request(self):
+        packet = harness.read_json(EXAMPLES / 'packet.json')
+        observations = harness.read_json(EXAMPLES / 'observations.json')
+        edited = dict(observations, unknowns=['See data/recordings/game.mkv'])
+        with self.assertRaisesRegex(ValueError, 'footage'):
+            cloud.checked_text(packet, edited)
+        with mock.patch.object(cloud, 'build_opener') as builder:
+            with self.assertRaisesRegex(ValueError, 'footage'):
+                cloud.complete({'input': [{'type': 'input_image', 'image_url': 'data:image/png;base64,abc'}]}, 'k')
+        builder.assert_not_called()
+        with self.assertRaisesRegex(ValueError, 'local-only'):
+            evaluation.request_for(dict(spec={}, packet=packet, observations=observations, root=EXAMPLES),
+                                   'openai', cloud.MODEL, 'observe', 4096)
+
     def test_cost_does_not_double_bill_reasoning_and_rejects_bad_usage(self):
         response = envelope({})
         self.assertAlmostEqual(cloud.cost_usd(response['usage']), 0.00562)
