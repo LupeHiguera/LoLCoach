@@ -176,6 +176,39 @@ The mapping is `video time = game time + offset`. If recording starts at game
 deaths outside the recording are listed as skipped. The manifest marks sync as
 unverified, even when it comes from OBS. Cuts, pauses or changing replay speeds
 require a different mapping and are not supported by this first version.
+
+### Measure the OBS offset against the game clock
+
+`coach.clips` does not watch the video. You pause it, read the clock, and the
+helper compares that reading with the saved offset. At video time `V` the offset
+predicts game time `V − offset_s`. `error_s` is the clock you read minus that
+prediction. The in-game clock shows a whole second, so a fraction under 1 s is
+reported and then left alone: it is not a correction.
+
+Worked example from a Practice Tool check: saved offset **−1.6 s**, video **1:00**
+shows game **1:01**. Predicted time is `60 − (−1.6) = 61.6` s, which displays as
+1:01. The displayed seconds agree. `error_s` is `61 − 61.6 = −0.6`. Suggested
+offset stays **−1.6**. One reading cannot show drift, and `verified` stays false.
+
+When the displayed second disagrees, the whole-second correction is
+`offset_s + (floor(expected) − floor(shown))`. Expecting 5:00 and seeing 4:58
+suggests `offset_s + 2`. If two readings disagree with each other, no single
+correction is suggested.
+
+A second reading at least 60 s later estimates drift in seconds per minute.
+`--accept-sync` sets `verified` only when all of these hold: at least two
+readings, span at least 60 s, every absolute error within 1 s, every displayed
+second matches, and drift is at most 0.2 s per minute. Otherwise the manifest
+stays unverified.
+
+```powershell
+python -m coach.clips --sync-only --offset -1.6 --checkpoint 60=1:01 --checkpoint 120=2:01
+python -m coach.clips --match NA1_123456789 --video data/recordings/game.mkv --offset -1.6 --checkpoint 60=1:01 --checkpoint 600=10:01 --dry-run
+```
+
+`--checkpoint` is `video=clock`. Both sides accept seconds (`61.6`) or `M:SS`
+(`1:01`). This reads no database and uploads nothing. Passing `--accept-sync`
+on an extraction writes the measurement into that batch's `manifest.json`.
 `--before`, `--after`, `--db`, `--notes`, `--ffmpeg` and `--ffprobe` override defaults.
 `--dry-run` still probes the video but writes no output.
 

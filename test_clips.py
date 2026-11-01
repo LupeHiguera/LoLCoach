@@ -76,6 +76,62 @@ class ClipPlanTests(unittest.TestCase):
     def test_no_deaths_is_a_valid_empty_batch(self):
         self.assertEqual(clips.plan_clips(MATCH, [], 0, 600)['clips'], [])
 
+    def test_player_identifiers_never_enter_the_manifest(self):
+        leaked = dict(death(300000), puuid='x' * 70, summonerName='Hidden', raw_json='{"puuid":"secret"}')
+        manifest = clips.plan_clips(dict(MATCH, raw_json='{"puuid":"secret"}', win=1,
+                                         recording_path=r'C:\Users\me\game.mp4'), [leaked], 0, 600)
+        text = json.dumps(manifest)
+        self.assertEqual(set(manifest['match']),
+                         {'match_id', 'patch', 'my_champion', 'opp_champion', 'duration_s'})
+        for secret in ('puuid', 'secret', 'Hidden', 'Users'):
+            self.assertNotIn(secret, text)
+        leaked['killer'] = 'Player#NA1'
+        with self.assertRaisesRegex(ValueError, 'Riot ID'):
+            clips.plan_clips(MATCH, [leaked], 0, 600)
+
+
+class SyncTests(unittest.TestCase):
+    def test_whole_second_clock_does_not_invent_a_fractional_correction(self):
+        # Video 1:00 showing game 1:01 agrees with offset -1.6 at whole-second precision.
+        report = clips.measure_sync(-1.6, [clips.parse_checkpoint('60=1:01')])
+        row = report['checkpoints'][0]
+        self.assertAlmostEqual(row['expected_game_s'], 61.6)
+        self.assertAlmostEqual(row['error_s'], -0.6)
+        self.assertEqual(row['displayed_error_s'], 0)
+        self.assertTrue(row['whole_second_match'])
+        self.assertEqual(report['suggested_offset_s'], -1.6)
+        self.assertIsNone(report['drift_s_per_min'])
+        self.assertFalse(report['acceptable'])
+
+    def test_displayed_second_disagreement_suggests_the_readme_correction(self):
+        # Expecting 5:00 and seeing 4:58 → offset_s + 2.
+        report = clips.measure_sync(0, [(300, clips.parse_clock('4:58'))])
+        self.assertEqual(report['checkpoints'][0]['displayed_error_s'], -2)
+        self.assertEqual(report['suggested_offset_s'], 2)
+
+    def test_two_readings_a_minute_apart_can_pass_and_estimate_drift(self):
+        report = clips.measure_sync(-1.6, [clips.parse_checkpoint('60=1:01'),
+                                           clips.parse_checkpoint('2:00=2:01')])
+        self.assertEqual(report['span_s'], 60)
+        self.assertEqual(report['drift_s_per_min'], 0)
+        self.assertTrue(report['acceptable'])
+        manifest = clips.plan_clips(MATCH, [death(300000)], -1.6, 600)
+        with self.assertRaisesRegex(ValueError, 'verified stays false'):
+            clips.attach_sync_measurement(manifest, [(60, 61)], accept=True)
+        self.assertFalse(manifest['sync']['verified'])
+        clips.attach_sync_measurement(manifest, [(60, 61.6), (180, 181.6)], accept=True)
+        self.assertTrue(manifest['sync']['verified'])
+        self.assertEqual(manifest['sync']['measurement']['n'], 2)
+
+    def test_sync_only_reads_no_database(self):
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            clips.main(['--sync-only', '--offset', '-1.6', '--checkpoint', '60=1:01',
+                        '--checkpoint', '120=2:01'])
+        report = json.loads(stdout.getvalue())
+        self.assertTrue(report['acceptable'])
+        self.assertNotIn('match_id', report)
+
 
 class EvidenceTests(unittest.TestCase):
     def test_whitelist_and_missing_timeline(self):

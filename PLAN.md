@@ -127,6 +127,10 @@ to positioning, not only aim. That is a lead to check against video, not a concl
 - [ ] Fallback: Replay API clips of flagged moments (needs `EnableReplayApi=1`; replays are patch-locked)
 - [ ] **Clock OCR** (PaddleOCR) → offset only for recordings made outside `recorder.py`
 - [x] CLI death clip extraction: up to 60 s before and 10 s after, with evidence manifest
+- [x] Clock-check helper compares a saved OBS offset with game clocks you read
+      (`python -m coach.clips --sync-only`). It does not watch the video. One
+      whole-second reading cannot show drift. `verified` stays false until
+      `--accept-sync` and the check passes.
 - [ ] Verify OBS capture, browser playback and clock sync on a real Windows recording
       (first session 2026-09-30; rehearsed on the Mac with a synthetic MKV whose frames show
       the game second: offset → clip → frame lined up to the second)
